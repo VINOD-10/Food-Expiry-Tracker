@@ -1,10 +1,11 @@
 import sqlite3
 
+# -----------------------------
 # Create database and table
+# -----------------------------
 def connect():
 
     conn = sqlite3.connect("food.db")
-
     cursor = conn.cursor()
 
     cursor.execute("""
@@ -20,15 +21,16 @@ def connect():
     conn.close()
 
 
+# -----------------------------
 # Insert food
+# -----------------------------
 def insert(food_name, mfg_date, expiry_date):
 
     conn = sqlite3.connect("food.db")
-
     cursor = conn.cursor()
 
     cursor.execute(
-        "INSERT INTO food(food_name,mfg_date,expiry_date) VALUES(?,?,?)",
+        "INSERT INTO food(food_name, mfg_date, expiry_date) VALUES (?, ?, ?)",
         (food_name, mfg_date, expiry_date)
     )
 
@@ -36,11 +38,12 @@ def insert(food_name, mfg_date, expiry_date):
     conn.close()
 
 
+# -----------------------------
 # Fetch all records
+# -----------------------------
 def fetch():
 
     conn = sqlite3.connect("food.db")
-
     cursor = conn.cursor()
 
     cursor.execute("SELECT * FROM food")
@@ -50,11 +53,54 @@ def fetch():
     conn.close()
 
     return rows
-if __name__ == "__main__":
-    connect()
 
-    rows = fetch()
 
-    for row in rows:
-        print(row)
-    
+# -----------------------------
+# Search food
+# -----------------------------
+def search(food_name):
+
+    conn = sqlite3.connect("food.db")
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "SELECT * FROM food WHERE food_name LIKE ?",
+        ('%' + food_name + '%',)
+    )
+
+    rows = cursor.fetchall()
+
+    conn.close()
+
+    return rows
+
+
+# -----------------------------
+# Delete one food
+# -----------------------------
+def delete(food_id):
+
+    conn = sqlite3.connect("food.db")
+    cursor = conn.cursor()
+
+    cursor.execute(
+        "DELETE FROM food WHERE id=?",
+        (food_id,)
+    )
+
+    conn.commit()
+    conn.close()
+
+
+# -----------------------------
+# Delete all foods
+# -----------------------------
+def delete_all():
+
+    conn = sqlite3.connect("food.db")
+    cursor = conn.cursor()
+
+    cursor.execute("DELETE FROM food")
+
+    conn.commit()
+    conn.close()
