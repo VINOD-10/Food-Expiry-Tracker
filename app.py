@@ -1,9 +1,11 @@
+from operator import index
 import tkinter as tk
 from tkinter import messagebox
 import database
 from datetime import datetime
 
 # Create main window
+selected_id = None
 root = tk.Tk()
 database.connect()
 root.title("Food Expiry Tracker")
@@ -57,6 +59,10 @@ tk.Label(root, text="Search Food", bg="#F5F5F5").pack(pady=5)
 
 search_entry = tk.Entry(root, width=30)
 search_entry.pack()
+from datetime import datetime
+
+from datetime import datetime
+
 def show_food():
 
     food_list.delete(0, tk.END)
@@ -66,25 +72,42 @@ def show_food():
     today = datetime.today()
 
     for row in rows:
+        try:
+            expiry = datetime.strptime(row[3], "%d-%m-%Y")
+            days_left = (expiry - today).days
 
-        expiry = datetime.strptime(row[3], "%d-%m-%Y")
+            if days_left < 0:
+                status = "❌ Expired"
+            elif days_left <= 3:
+                status = "🟡 Expiring Soon"
+            else:
+                status = "🟢 Safe"
 
-        days_left = (expiry - today).days
+            # Insert item
+            food_list.insert(
+                tk.END,
+                f"ID:{row[0]} | {row[1]} | EXP:{row[3]} | {days_left} Days | {status}"
+            )
 
-        if days_left < 0:
-            status = "❌ Expired"
+            # ✅ IMPORTANT: color must be inside loop
+            index = food_list.size() - 1
 
-        elif days_left <= 3:
-            status = "🟡 Expiring Soon"
+            index = food_list.size() - 1
 
-        else:
-            status = "🟢 Safe"
+            if days_left > 3:
+              food_list.itemconfig(index, {'fg': 'green'})
+            elif days_left >= 0:
+              food_list.itemconfig(index, {'fg': 'orange'})
+            else:
+              food_list.itemconfig(index, {'fg': 'red'})
 
-        food_list.insert(
-            tk.END,
-            f"{row[1]} | Exp: {row[3]} | {days_left} Days | {status}"
-        )
+        except:
+            food_list.insert(
+                tk.END,
+                f"ID:{row[0]} | {row[1]} | Invalid Date Format"
+            )
 
+    # clear inputs
     food_entry.delete(0, tk.END)
     mfg_entry.delete(0, tk.END)
     exp_entry.delete(0, tk.END)
@@ -100,6 +123,25 @@ def search_food():
             tk.END,
             f"ID:{row[0]} | {row[1]} | EXP:{row[3]}"
         )
+def select_item(event):
+
+    global selected_id
+
+    selected = food_list.curselection()
+
+    if selected:
+        item = food_list.get(selected[0])
+
+        parts = item.split("|")
+
+        selected_id = int(parts[0].replace("ID:", "").strip())
+
+        # Fill fields
+        food_entry.delete(0, tk.END)
+        food_entry.insert(0, parts[1].strip())
+
+        exp_entry.delete(0, tk.END)
+        exp_entry.insert(0, parts[2].replace("EXP:", "").strip())
 def delete_food():
 
     selected = food_list.curselection()
@@ -127,6 +169,28 @@ def delete_food():
         "Deleted",
         "Food deleted successfully!"
     )
+def update_food():
+
+    global selected_id
+
+    if selected_id is None:
+        messagebox.showwarning("Warning", "Select a food item first")
+        return
+    print("Updating ID:", selected_id)
+
+    food_name = food_entry.get()
+    mfg_date = mfg_entry.get()
+    exp_date = exp_entry.get()
+
+    if food_name == "" or mfg_date == "" or exp_date == "":
+        messagebox.showwarning("Warning", "Fill all fields")
+        return
+
+    database.update(selected_id, food_name, mfg_date, exp_date)
+
+    show_food()
+
+    messagebox.showinfo("Success", "Food updated successfully!")
 # Button
 add_btn = tk.Button(
     root,
@@ -159,6 +223,16 @@ delete_btn = tk.Button(
 )
 
 delete_btn.pack(pady=5)
+update_btn = tk.Button(
+    root,
+    text="Update Selected",
+    command=update_food,
+    width=18,
+    bg="#FF9800",
+    fg="white",
+    font=("Arial", 10, "bold")
+)
+update_btn.pack(pady=5)
 add_btn.pack(pady=20)
 # -----------------------------
 # Food List Label
@@ -181,5 +255,6 @@ food_list = tk.Listbox(
 )
 
 food_list.pack(pady=10)
+food_list.bind("<<ListboxSelect>>", select_item)
 show_food()
 root.mainloop()
