@@ -9,7 +9,8 @@ from datetime import datetime
 root = tk.Tk()
 root.title("Food Expiry Tracker")
 root.geometry("800x600")
-root.configure(bg="#ECF0F1")
+root.minsize(700, 520)
+root.configure(bg="#F4F7FB")
 
 database.connect()
 selected_id = None
@@ -19,44 +20,71 @@ selected_id = None
 # -----------------------
 tk.Label(
     root,
-    text="🍱 Food Expiry Tracker",
+    text="Food Expiry Tracker",
     font=("Segoe UI", 22, "bold"),
-    bg="#ECF0F1",
-    fg="#2C3E50"
-).pack(pady=15)
+    bg="#F4F7FB",
+    fg="#1F3A5F"
+).pack(pady=(18, 12))
 
 # -----------------------
 # Form Section
-# -----------------------
-form_frame = tk.Frame(root, bg="white", bd=2, relief="groove")
-form_frame.pack(padx=20, pady=10, fill="x")
+form_frame = tk.Frame(root, bg="white", bd=1, relief="solid")
+form_frame.pack(padx=24, pady=8, fill="x")
 
-tk.Label(form_frame, text="Food Name", bg="white").grid(row=0, column=0, padx=10, pady=10)
-food_entry = tk.Entry(form_frame, width=25)
-food_entry.grid(row=0, column=1)
+# Make columns flexible
+form_frame.columnconfigure(0, weight=1)
+form_frame.columnconfigure(1, weight=2)
 
-tk.Label(form_frame, text="MFG Date (DD-MM-YYYY)", bg="white").grid(row=1, column=0, padx=10)
-mfg_entry = tk.Entry(form_frame)
-mfg_entry.grid(row=1, column=1)
+# Food Name
+tk.Label(
+    form_frame,
+    text="Food Name",
+    bg="white",
+    fg="#34495E",
+    font=("Segoe UI", 10, "bold")
+).grid(row=0, column=0, sticky="e", padx=(18, 10), pady=10)
 
-tk.Label(form_frame, text="Expiry Date (DD-MM-YYYY)", bg="white").grid(row=2, column=0, padx=10)
-exp_entry = tk.Entry(form_frame)
-exp_entry.grid(row=2, column=1)
+food_entry = tk.Entry(form_frame, width=30, bg="#F1F4F8", fg="#273746", relief="solid", bd=1)
+food_entry.grid(row=0, column=1, sticky="ew", padx=(0, 18), pady=10)
+
+# MFG Date
+tk.Label(
+    form_frame,
+    text="MFG Date (DD-MM-YYYY)",
+    bg="white",
+    fg="#34495E",
+    font=("Segoe UI", 10, "bold")
+).grid(row=1, column=0, sticky="e", padx=(18, 10), pady=10)
+
+mfg_entry = tk.Entry(form_frame, width=30, bg="#F1F4F8", fg="#273746", relief="solid", bd=1)
+mfg_entry.grid(row=1, column=1, sticky="ew", padx=(0, 18), pady=10)
+
+# Expiry Date
+tk.Label(
+    form_frame,
+    text="Expiry Date (DD-MM-YYYY)",
+    bg="white",
+    fg="#34495E",
+    font=("Segoe UI", 10, "bold")
+).grid(row=2, column=0, sticky="e", padx=(18, 10), pady=10)
+
+exp_entry = tk.Entry(form_frame, width=30, bg="#F1F4F8", fg="#273746", relief="solid", bd=1)
+exp_entry.grid(row=2, column=1, sticky="ew", padx=(0, 18), pady=10)
 
 # -----------------------
 # Buttons
 # -----------------------
-btn_frame = tk.Frame(root, bg="#ECF0F1")
-btn_frame.pack(pady=10)
+btn_frame = tk.Frame(root, bg="#F4F7FB")
+btn_frame.pack(pady=(12, 8))
 
 # -----------------------
 # Search
 # -----------------------
-search_frame = tk.Frame(root, bg="#ECF0F1")
-search_frame.pack(pady=5)
+search_frame = tk.Frame(root, bg="#F4F7FB")
+search_frame.pack(pady=(0, 8))
 
-tk.Label(search_frame, text="Search:", bg="#ECF0F1").pack(side="left")
-search_entry = tk.Entry(search_frame, width=30)
+tk.Label(search_frame, text="Search", bg="#F4F7FB", fg="#34495E", font=("Segoe UI", 10, "bold")).pack(side="left")
+search_entry = tk.Entry(search_frame, width=30, bg="white", fg="#273746", relief="solid", bd=1)
 search_entry.pack(side="left", padx=10)
 
 # -----------------------
@@ -67,12 +95,20 @@ style.theme_use("default")
 
 style.configure("Treeview",
     background="white",
-    foreground="black",
-    rowheight=28,
-    fieldbackground="white"
+    foreground="#273746",
+    rowheight=30,
+    fieldbackground="white",
+    font=("Segoe UI", 10)
 )
 
-style.map("Treeview", background=[("selected", "#2980B9")])
+style.configure("Treeview.Heading",
+    background="#1F3A5F",
+    foreground="white",
+    font=("Segoe UI", 10, "bold"),
+    padding=(8, 7)
+)
+style.map("Treeview", background=[("selected", "#2F7D7A")])
+style.map("Treeview.Heading", background=[("active", "#294D73")])
 
 # -----------------------
 # Table
@@ -87,7 +123,7 @@ for col in ("ID", "Name", "Expiry", "Days", "Status"):
     food_table.heading(col, text=col)
     food_table.column(col, anchor="center", width=120)
 
-food_table.pack(padx=20, pady=10, fill="both", expand=True)
+food_table.pack(padx=24, pady=(4, 18), fill="both", expand=True)
 
 # Scrollbar
 scrollbar = tk.Scrollbar(food_table)
@@ -198,10 +234,20 @@ food_table.bind("<<TreeviewSelect>>", select_item)
 # -----------------------
 # Buttons (after functions)
 # -----------------------
-tk.Button(btn_frame, text="Add", bg="#27AE60", fg="white", width=12, command=add_food).grid(row=0, column=0, padx=5)
-tk.Button(btn_frame, text="Update", bg="#F39C12", fg="white", width=12, command=update_food).grid(row=0, column=1, padx=5)
-tk.Button(btn_frame, text="Delete", bg="#E74C3C", fg="white", width=12, command=delete_food).grid(row=0, column=2, padx=5)
-tk.Button(btn_frame, text="Search", bg="#3498DB", fg="white", width=12, command=search_food).grid(row=0, column=3, padx=5)
+button_style = {
+    "fg": "white",
+    "width": 12,
+    "font": ("Segoe UI", 10, "bold"),
+    "relief": "flat",
+    "bd": 0,
+    "cursor": "hand2",
+    "pady": 6
+}
+
+tk.Button(btn_frame, text="Add", bg="#2F7D7A", activebackground="#256461", activeforeground="white", command=add_food, **button_style).grid(row=0, column=0, padx=5)
+tk.Button(btn_frame, text="Update", bg="#D28B26", activebackground="#AE711E", activeforeground="white", command=update_food, **button_style).grid(row=0, column=1, padx=5)
+tk.Button(btn_frame, text="Delete", bg="#C6534B", activebackground="#A6413A", activeforeground="white", command=delete_food, **button_style).grid(row=0, column=2, padx=5)
+tk.Button(btn_frame, text="Search", bg="#3B6F9E", activebackground="#2D587F", activeforeground="white", command=search_food, **button_style).grid(row=0, column=3, padx=5)
 
 # -----------------------
 # Start

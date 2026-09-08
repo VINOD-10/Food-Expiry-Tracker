@@ -104,3 +104,16 @@ def delete_all():
 
     conn.commit()
     conn.close()
+def update(food_id, food_name, mfg_date, expiry_date):
+
+    conn = sqlite3.connect("food.db")
+    cursor = conn.cursor()
+
+    cursor.execute("""
+        UPDATE food
+        SET food_name=?, mfg_date=?, expiry_date=?
+        WHERE id=?
+    """, (food_name, mfg_date, expiry_date, food_id))
+
+    conn.commit()
+    conn.close()
