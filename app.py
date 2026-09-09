@@ -1,532 +1,309 @@
 import tkinter as tk
-from tkinter import ttk, messagebox
-import database
+from tkinter import messagebox, ttk
 from datetime import datetime
 
-# -----------------------
-# Setup
-# -----------------------
-root = tk.Tk()
-root.title("Food Expiry Tracker")
-root.geometry("850x720")
-root.minsize(700, 620)
-root.configure(bg="#F4F7FB")
+import database
 
-database.connect()
-selected_id = None
 
-# -----------------------
-# Heading
-# -----------------------
-tk.Label(
-    root,
-    text="Food Expiry Tracker",
-    font=("Segoe UI", 22, "bold"),
-    bg="#F4F7FB",
-    fg="#1F3A5F"
-).pack(pady=(18, 12))
-
-# -----------------------
-# Form Section
-form_frame = tk.Frame(root, bg="white", bd=1, relief="solid")
-form_frame.pack(padx=24, pady=8, fill="x")
-
-# Make columns flexible
-form_frame.columnconfigure(0, weight=1)
-form_frame.columnconfigure(1, weight=2)
-
-# Food Name
-tk.Label(
-    form_frame,
-    text="Food Name",
-    bg="white",
-    fg="#34495E",
-    font=("Segoe UI", 10, "bold")
-).grid(row=0, column=0, sticky="e", padx=(18, 10), pady=10)
-
-food_entry = tk.Entry(form_frame, width=30, bg="#F1F4F8", fg="#273746", relief="solid", bd=1)
-food_entry.grid(row=0, column=1, sticky="ew", padx=(0, 18), pady=10)
-
-# MFG Date
-tk.Label(
-    form_frame,
-    text="MFG Date (DD-MM-YYYY)",
-    bg="white",
-    fg="#34495E",
-    font=("Segoe UI", 10, "bold")
-).grid(row=1, column=0, sticky="e", padx=(18, 10), pady=10)
-
-mfg_entry = tk.Entry(form_frame, width=30, bg="#F1F4F8", fg="#273746", relief="solid", bd=1)
-mfg_entry.grid(row=1, column=1, sticky="ew", padx=(0, 18), pady=10)
-
-# Expiry Date
-tk.Label(
-    form_frame,
-    text="Expiry Date (DD-MM-YYYY)",
-    bg="white",
-    fg="#34495E",
-    font=("Segoe UI", 10, "bold")
-).grid(row=2, column=0, sticky="e", padx=(18, 10), pady=10)
-
-exp_entry = tk.Entry(form_frame, width=30, bg="#F1F4F8", fg="#273746", relief="solid", bd=1)
-exp_entry.grid(row=2, column=1, sticky="ew", padx=(0, 18), pady=10)
-
-# -----------------------
-# Buttons
-# -----------------------
-btn_frame = tk.Frame(root, bg="#F4F7FB")
-btn_frame.pack(pady=(12, 8))
-
-# -----------------------
-# Search
-# -----------------------
-search_frame = tk.Frame(root, bg="#F4F7FB")
-search_frame.pack(pady=(0, 8))
-
-tk.Label(search_frame, text="Search", bg="#F4F7FB", fg="#34495E", font=("Segoe UI", 10, "bold")).pack(side="left")
-search_entry = tk.Entry(search_frame, width=30, bg="white", fg="#273746", relief="solid", bd=1)
-search_entry.pack(side="left", padx=10)
-
-# -----------------------
-# Table Style
-# -----------------------
-style = ttk.Style()
-style.theme_use("default")
-
-style.configure("Treeview",
-    background="white",
-    foreground="#273746",
-    rowheight=30,
-    fieldbackground="white",
-    font=("Segoe UI", 10)
-)
-
-style.configure("Treeview.Heading",
-    background="#1F3A5F",
-    foreground="white",
-    font=("Segoe UI", 10, "bold"),
-    padding=(8, 7)
-)
-style.map("Treeview", background=[("selected", "#2F7D7A")])
-style.map("Treeview.Heading", background=[("active", "#294D73")])
-
-# -----------------------
-# Table
-# -----------------------
-food_table = ttk.Treeview(
-    root,
-    columns=("ID", "Name", "Expiry", "Days", "Status"),
-    show="headings"
-)
-
-for col in ("ID", "Name", "Expiry", "Days", "Status"):
-    food_table.heading(col, text=col)
-    food_table.column(col, anchor="center", width=120)
-
-food_table.pack(padx=24, pady=(4, 18), fill="both", expand=True)
-
-# Scrollbar
-scrollbar = tk.Scrollbar(food_table)
-scrollbar.pack(side="right", fill="y")
-food_table.config(yscrollcommand=scrollbar.set)
-scrollbar.config(command=food_table.yview)
-
-# -----------------------
-# Recipe Chatbox
-# -----------------------
-chat_frame = tk.Frame(root, bg="#102A43", bd=0)
-chat_frame.pack(padx=24, pady=(0, 18), fill="x")
-
-chat_header = tk.Frame(chat_frame, bg="#102A43")
-chat_header.pack(fill="x", padx=16, pady=(12, 4))
-
-tk.Label(
-    chat_header,
-    text="Recipe studio",
-    bg="#102A43",
-    fg="white",
-    font=("Segoe UI", 14, "bold")
-).pack(side="left")
-
-chat_api_status = tk.Label(
-    chat_header,
-    text="LOCAL RECIPES",
-    bg="#2F7D7A",
-    fg="white",
-    font=("Segoe UI", 8, "bold"),
-    padx=8,
-    pady=3
-)
-chat_api_status.pack(side="left", padx=10)
-
-tk.Button(
-    chat_header,
-    text="Clear",
-    command=lambda: chat_history.delete("1.0", tk.END),
-    bg="#294D73",
-    fg="white",
-    activebackground="#3B6F9E",
-    relief="flat",
-    bd=0,
-    cursor="hand2",
-    padx=10,
-    pady=3
-).pack(side="right")
-
-tk.Label(
-    chat_frame,
-    text="Use an ingredient, cuisine, or dietary idea. Recipes are matched to food already in your tracker.",
-    bg="#102A43",
-    fg="#C9D7E6",
-    font=("Segoe UI", 9)
-).pack(anchor="w", padx=16, pady=(0, 8))
-
-suggestion_frame = tk.Frame(chat_frame, bg="#102A43")
-suggestion_frame.pack(fill="x", padx=16, pady=(0, 8))
-
-suggestion_title = tk.Label(
-    suggestion_frame,
-    text="IN YOUR INVENTORY",
-    bg="#102A43",
-    fg="#7DD3C7",
-    font=("Segoe UI", 8, "bold")
-)
-suggestion_title.pack(anchor="w")
-
-suggestion_buttons = tk.Frame(suggestion_frame, bg="#102A43")
-suggestion_buttons.pack(fill="x", pady=(4, 0))
-
-chat_body = tk.Frame(chat_frame, bg="#F8FAFC")
-chat_body.pack(fill="x", padx=12, pady=(0, 8))
-
-chat_history = tk.Text(
-    chat_body,
-    height=9,
-    wrap="word",
-    state="normal",
-    bg="#F8FAFC",
-    fg="#273746",
-    relief="flat",
-    bd=0,
-    padx=10,
-    pady=8,
-    font=("Segoe UI", 9)
-)
-chat_history.pack(side="left", fill="both", expand=True)
-
-chat_scrollbar = tk.Scrollbar(chat_body, command=chat_history.yview)
-chat_scrollbar.pack(side="right", fill="y")
-chat_history.config(yscrollcommand=chat_scrollbar.set)
-
-chat_input_frame = tk.Frame(chat_frame, bg="#102A43")
-chat_input_frame.pack(fill="x", padx=16, pady=(0, 12))
-
-chat_entry = tk.Entry(
-    chat_input_frame,
-    bg="white",
-    fg="#273746",
-    relief="flat",
-    bd=0,
-    font=("Segoe UI", 10)
-)
-chat_entry.pack(side="left", fill="x", expand=True, ipady=8)
-
-
-def add_chat_message(sender, message):
-    chat_history.insert(tk.END, f"{sender}: {message}\n\n")
-    chat_history.see(tk.END)
-
-
-def choose_inventory_food(food_name):
-    chat_entry.delete(0, tk.END)
-    chat_entry.insert(0, food_name)
-    ask_recipe_assistant()
-
-
-def refresh_inventory_suggestions():
-    for button in suggestion_buttons.winfo_children():
-        button.destroy()
-
-    names = []
-    for row in database.fetch():
-        food_name = row[1].strip()
-        if food_name and food_name.lower() not in [name.lower() for name in names]:
-            names.append(food_name)
-
-    if not names:
-        suggestion_title.config(text="IN YOUR INVENTORY • ADD FOOD TO SEE SUGGESTIONS")
-        return
-
-    suggestion_title.config(text="IN YOUR INVENTORY • CLICK FOR A RECIPE")
-    for index, food_name in enumerate(names):
-        tk.Button(
-            suggestion_buttons,
-            text=food_name,
-            command=lambda name=food_name: choose_inventory_food(name),
-            bg="#1E4D68",
-            fg="white",
-            activebackground="#2F7D7A",
-            activeforeground="white",
-            relief="flat",
-            bd=0,
-            cursor="hand2",
-            padx=9,
-            pady=3
-        ).grid(row=index // 6, column=index % 6, padx=(0, 6), pady=(0, 4), sticky="w")
-
-
-def recipe_for(food_name):
-    name = food_name.lower()
-    recipes = {
-        "banana": "Banana pancakes (2 servings): mix 2 ripe bananas, 2 eggs, 120 g flour, 120 ml milk, 1 tsp baking powder and a pinch of salt; cook 2 tbsp batter per pancake in a lightly oiled pan for 2 minutes per side.",
-        "bread": "Garlic bread (4 servings): mix 60 g softened butter, 2 minced garlic cloves and 1 tbsp chopped herbs; spread on 4 slices and bake at 200 C for 8-10 minutes.",
-        "tomato": "Tomato pasta (2 servings): cook 180 g pasta; fry 1 tbsp oil with 1 chopped onion and 2 garlic cloves, add 400 g tomatoes, 1 tsp salt and 1/2 tsp pepper, simmer 15 minutes, then mix with pasta.",
-        "potato": "Roasted potatoes (2 servings): toss 500 g cubed potatoes with 2 tbsp oil, 1 tsp salt, 1/2 tsp pepper and 1/2 tsp paprika; roast at 220 C for 30-40 minutes, turning once.",
-        "apple": "Apple crumble (4 servings): mix 4 sliced apples with 2 tbsp sugar and 1 tsp cinnamon; cover with 80 g flour, 60 g oats, 60 g butter and 50 g sugar; bake at 180 C for 35 minutes.",
-        "milk": "Milk pancakes (2 servings): whisk 1 cup flour, 1 cup milk, 1 egg, 1 tbsp sugar, 1 tsp baking powder and a pinch of salt; cook 60 ml batter per pancake for 2 minutes per side.",
-        "rice": "Vegetable fried rice (2 servings): stir-fry 2 tbsp oil, 1 chopped onion and 2 cups cooked rice; add 1 cup chopped vegetables, 1 tbsp soy sauce and 1 beaten egg, then cook 5-7 minutes.",
-        "pasta": "Quick pasta (2 servings): boil 180 g pasta; saute 2 tbsp oil, 2 garlic cloves and 250 g chopped vegetables, add 100 ml pasta water and mix with the drained pasta.",
-        "carrot": "Carrot soup (4 servings): saute 1 onion in 1 tbsp oil, add 500 g sliced carrots, 750 ml stock, 1/2 tsp salt and 1/4 tsp pepper; simmer 25 minutes and blend.",
-        "onion": "Caramelized onion toast (2 servings): cook 2 sliced onions with 1 tbsp oil and a pinch of salt for 20 minutes; add 1 tsp vinegar, then serve on 2 toasted bread slices.",
-        "spinach": "Spinach omelette (1 serving): whisk 2 eggs with 1 tbsp milk and a pinch of salt; cook with 1 cup spinach and 1 tsp oil for 3-4 minutes.",
-        "cabbage": "Cabbage stir-fry (2 servings): fry 1 tbsp oil, 1 garlic clove and 300 g sliced cabbage; add 1 tbsp soy sauce and cook 6-8 minutes.",
-        "broccoli": "Broccoli pasta (2 servings): steam 250 g broccoli; toss with 180 g cooked pasta, 2 tbsp olive oil, 1 garlic clove, 30 g cheese and 1/2 tsp pepper.",
-        "beans": "Bean curry (3 servings): fry 1 onion with 1 tbsp oil, add 1 tsp curry powder and 400 g cooked beans, 200 g tomatoes and 150 ml water; simmer 15 minutes.",
-        "lentil": "Lentil soup (4 servings): simmer 200 g lentils, 1 chopped onion, 1 carrot, 1 tomato, 1 litre stock, 1 tsp cumin and 1/2 tsp salt for 30 minutes.",
-        "chickpea": "Chickpea salad (2 servings): combine 400 g cooked chickpeas, 1 chopped tomato, 1/2 cucumber, 2 tbsp lemon juice, 1 tbsp oil, 1/2 tsp salt and herbs.",
-        "chicken": "Chicken stir-fry (2 servings): cook 300 g sliced chicken in 1 tbsp oil for 6-8 minutes; add 2 cups vegetables, 1 tbsp soy sauce and 2 tbsp water, then cook 5 minutes more.",
-        "beef": "Beef vegetable stew (4 servings): brown 500 g beef in 1 tbsp oil; add 1 onion, 2 carrots, 500 ml stock, 1 tsp salt and 1/2 tsp pepper; cover and simmer 60 minutes.",
-        "fish": "Baked fish (2 servings): place 400 g fish with 1 tbsp oil, 1 tbsp lemon juice, 1/2 tsp salt, 1/4 tsp pepper and herbs; bake at 200 C for 12-15 minutes.",
-        "salmon": "Baked salmon (2 servings): season 400 g salmon with 1 tbsp oil, 1 tbsp lemon juice, 1/2 tsp salt and 1/4 tsp pepper; bake at 200 C for 12-15 minutes.",
-        "egg": "Vegetable omelette (1 serving): whisk 2 eggs with 1 tbsp milk and 1/4 tsp salt; cook with 1/2 cup chopped vegetables in 1 tsp oil for 3-4 minutes.",
-        "cheese": "Cheese toast (2 servings): place 2 cheese slices and 1/2 cup chopped vegetables on 2 bread slices; grill at 200 C for 5-7 minutes until melted.",
-        "yogurt": "Yogurt dip (2 servings): mix 200 g yogurt, 1 minced garlic clove, 1 tbsp lemon juice, 1/4 tsp salt and 1 tbsp herbs; chill for 10 minutes.",
-        "mushroom": "Mushroom stir-fry (2 servings): cook 300 g sliced mushrooms with 1 tbsp butter, 1 minced garlic clove, 1/2 tsp salt and 1/4 tsp pepper for 8-10 minutes.",
-        "corn": "Corn fritters (2 servings): mix 1 cup corn, 1 egg, 60 g flour, 2 tbsp milk, 1/4 tsp salt and pepper; fry 2 tbsp portions in 1 tbsp oil for 2 minutes per side.",
-        "cucumber": "Cucumber raita (2 servings): mix 200 g yogurt, 1 grated cucumber, 1/4 tsp salt, 1/4 tsp cumin and 1 tbsp herbs; chill for 15 minutes.",
-        "orange": "Orange smoothie (2 servings): blend 2 peeled oranges, 1 banana, 200 ml yogurt or milk and 1 tsp honey until smooth.",
-        "mango": "Mango smoothie (2 servings): blend 1 chopped mango, 200 ml milk or yogurt, 1 tsp honey and 4 ice cubes.",
-        "strawberry": "Strawberry smoothie (2 servings): blend 250 g strawberries, 200 ml milk or yogurt, 1 banana and 1 tsp honey.",
-        "flour": "Simple flatbread (4 pieces): mix 200 g flour, 120 ml water, 1/2 tsp salt and 1 tsp oil; knead 5 minutes, rest 15 minutes, roll and cook 2 minutes per side.",
-        "oats": "Overnight oats (1 serving): mix 50 g oats, 150 ml milk, 100 g yogurt, 1 tsp honey and fruit; refrigerate at least 4 hours.",
-        "tofu": "Crispy tofu (2 servings): toss 300 g cubed tofu with 1 tbsp oil, 1 tbsp soy sauce and 1 tbsp cornflour; bake at 220 C for 20-25 minutes.",
-        "avocado": "Avocado toast (2 servings): mash 1 avocado with 1 tbsp lemon juice, 1/4 tsp salt and pepper; spread on 2 toasted bread slices.",
-    }
-
-    if name in {"help", "how", "usage", "api"} or "how to use" in name:
-        return "Use the chatbox by typing one food name, for example banana, rice, chicken or tomato, then press Ask or Enter. This app currently uses a local Python recipe catalog, so it needs no API key or internet connection."
-
-    for ingredient, recipe in recipes.items():
-        if ingredient in name:
-            return recipe
-
-    return f"{food_name.title()} base recipe (2 servings): use 300 g of the food, 1 tbsp oil, 1 chopped onion, 2 garlic cloves, 1/2 tsp salt, 1/4 tsp pepper and 250 ml stock; saute onion and garlic for 3 minutes, add the food and stock, cover and cook until tender. Add water for soup, cooked rice for a bowl, or pasta for a complete meal."
-
-
-def get_expiring_foods():
-    today = datetime.now().date()
-    foods = []
-
-    for row in database.fetch():
-        try:
-            expiry = datetime.strptime(row[3], "%d-%m-%Y").date()
-        except ValueError:
-            continue
-
-        days_from_today = (expiry - today).days
-        if -7 <= days_from_today <= 7:
-            foods.append((row[1], days_from_today))
-
-    return foods
-
-
-def refresh_recipe_suggestions():
-    chat_history.delete("1.0", tk.END)
-    refresh_inventory_suggestions()
-
-    foods = get_expiring_foods()
-    if not foods:
-        add_chat_message("Assistant", "No food is expired within the last 7 days or expiring in the next 7 days.")
-        return
-
-    add_chat_message("Assistant", "I found these items that need attention:")
-    for food_name, days_from_today in foods:
-        if days_from_today < 0:
-            add_chat_message(
-                "Assistant",
-                f"{food_name} expired {abs(days_from_today)} day(s) ago. Do not cook with it unless you have confirmed it is safe; when in doubt, discard it."
-            )
-        elif days_from_today == 0:
-            add_chat_message("Assistant", f"{food_name} expires today. If it is fresh and safely stored, {recipe_for(food_name)}")
-        else:
-            add_chat_message("Assistant", f"{food_name} expires in {days_from_today} day(s). Use it soon: {recipe_for(food_name)}")
-
-
-def ask_recipe_assistant(event=None):
-    food_name = chat_entry.get().strip()
-    if not food_name:
-        return
-
-    add_chat_message("You", food_name)
-
-    inventory_names = [row[1].strip() for row in database.fetch() if row[1].strip()]
-    query = food_name.lower()
-    matching_food = any(
-        query in inventory_name.lower() or inventory_name.lower() in query
-        for inventory_name in inventory_names
-    )
-
-    if not matching_food:
-        add_chat_message(
-            "Assistant",
-            f"No food item found in the database for '{food_name}'. Add it to your food tracker first, then ask for a recipe."
-        )
-        chat_entry.delete(0, tk.END)
-        return
-
-    add_chat_message("Assistant", recipe_for(food_name))
-    chat_entry.delete(0, tk.END)
-
-
-tk.Button(
-    chat_input_frame,
-    text="Ask",
-    bg="#2F7D7A",
-    activebackground="#256461",
-    activeforeground="white",
-    fg="white",
-    width=12,
-    font=("Segoe UI", 10, "bold"),
-    relief="flat",
-    bd=0,
-    cursor="hand2",
-    pady=6,
-    command=ask_recipe_assistant
-).pack(side="left", padx=(8, 0))
-chat_entry.bind("<Return>", ask_recipe_assistant)
-
-# Status colors
-food_table.tag_configure("safe", foreground="#27AE60")
-food_table.tag_configure("soon", foreground="#F39C12")
-food_table.tag_configure("expired", foreground="#E74C3C")
-
-# -----------------------
-# Functions
-# -----------------------
-def show_food():
-    food_table.delete(*food_table.get_children())
-    rows = database.fetch()
-    today = datetime.now()
-
-    for row in rows:
-        try:
-            expiry = datetime.strptime(row[3], "%d-%m-%Y")
-            days_left = (expiry - today).days
-
-            if days_left < 0:
-                status = "❌ Expired"
-                tag = "expired"
-            elif days_left <= 7:
-                status = "🟡 Expiring Soon"
-                tag = "soon"
-            else:
-                status = "🟢 Safe"
-                tag = "safe"
-
-            food_table.insert("", "end",
-                values=(row[0], row[1], row[3], days_left, status),
-                tags=(tag,)
-            )
-
-        except:
-            food_table.insert("", "end",
-                values=(row[0], row[1], row[3], "-", "Invalid")
-            )
-
-    refresh_recipe_suggestions()
-
-def add_food():
-    if not food_entry.get() or not mfg_entry.get() or not exp_entry.get():
-        messagebox.showwarning("Warning", "Fill all fields")
-        return
-
-    database.insert(food_entry.get(), mfg_entry.get(), exp_entry.get())
-    show_food()
-
-def select_item(event):
-    global selected_id
-    selected = food_table.focus()
-
-    if selected:
-        values = food_table.item(selected, "values")
-        selected_id = values[0]
-
-        food_entry.delete(0, tk.END)
-        food_entry.insert(0, values[1])
-
-        exp_entry.delete(0, tk.END)
-        exp_entry.insert(0, values[2])
-
-def delete_food():
-    selected = food_table.focus()
-    if not selected:
-        messagebox.showwarning("Warning", "Select item")
-        return
-
-    values = food_table.item(selected, "values")
-    database.delete(values[0])
-    show_food()
-
-def update_food():
-    global selected_id
-
-    if selected_id is None:
-        messagebox.showwarning("Warning", "Select item first")
-        return
-
-    database.update(
-        selected_id,
-        food_entry.get(),
-        mfg_entry.get(),
-        exp_entry.get()
-    )
-
-    show_food()
-
-def search_food():
-    food_table.delete(*food_table.get_children())
-    rows = database.search(search_entry.get())
-
-    for row in rows:
-        food_table.insert("", "end",
-            values=(row[0], row[1], row[3], "-", "Search")
-        )
-
-# -----------------------
-# Bind
-# -----------------------
-food_table.bind("<<TreeviewSelect>>", select_item)
-
-# -----------------------
-# Buttons (after functions)
-# -----------------------
-button_style = {
-    "fg": "white",
-    "width": 12,
-    "font": ("Segoe UI", 10, "bold"),
-    "relief": "flat",
-    "bd": 0,
-    "cursor": "hand2",
-    "pady": 6
+COLORS = {
+    "ink": "#17212B", "muted": "#6D7885", "line": "#E3E8ED",
+    "paper": "#F7F8FA", "white": "#FFFFFF", "navy": "#142A3D",
+    "navy_soft": "#1D3A52", "teal": "#0F8B8D", "teal_dark": "#0B6E70",
+    "amber": "#C47B16", "red": "#C6534B", "green": "#2E8B68",
 }
+FONT = "Segoe UI"
 
-tk.Button(btn_frame, text="Add", bg="#2F7D7A", activebackground="#256461", activeforeground="white", command=add_food, **button_style).grid(row=0, column=0, padx=5)
-tk.Button(btn_frame, text="Update", bg="#D28B26", activebackground="#AE711E", activeforeground="white", command=update_food, **button_style).grid(row=0, column=1, padx=5)
-tk.Button(btn_frame, text="Delete", bg="#C6534B", activebackground="#A6413A", activeforeground="white", command=delete_food, **button_style).grid(row=0, column=2, padx=5)
-tk.Button(btn_frame, text="Search", bg="#3B6F9E", activebackground="#2D587F", activeforeground="white", command=search_food, **button_style).grid(row=0, column=3, padx=5)
 
-# -----------------------
-# Start
-# -----------------------
-show_food()
-root.mainloop()
+class FoodExpiryApp:
+    def __init__(self, root):
+        self.root = root
+        self.root.title("Pantry | Food expiry tracker")
+        self.root.geometry("1120x720")
+        self.root.minsize(880, 620)
+        self.root.configure(bg=COLORS["paper"])
+        self.selected_id = None
+        database.connect()
+        self._configure_styles()
+        self._build_shell()
+        self._refresh()
+
+    def _configure_styles(self):
+        style = ttk.Style(self.root)
+        style.theme_use("clam")
+        style.configure("Food.Treeview", background=COLORS["white"], fieldbackground=COLORS["white"], foreground=COLORS["ink"], rowheight=48, borderwidth=0, font=(FONT, 10))
+        style.configure("Food.Treeview.Heading", background=COLORS["white"], foreground=COLORS["muted"], font=(FONT, 9, "bold"), padding=(12, 10), relief="flat")
+        style.map("Food.Treeview", background=[("selected", "#E3F2F2")], foreground=[("selected", COLORS["ink"])])
+        style.configure("Food.Vertical.TScrollbar", troughcolor=COLORS["white"], background="#CBD5DD", borderwidth=0, arrowsize=12)
+
+    def _label(self, parent, text, size=10, color=None, weight="normal", **kwargs):
+        return tk.Label(parent, text=text, font=(FONT, size, weight), fg=color or COLORS["ink"], bg=parent.cget("bg"), **kwargs)
+
+    def _build_shell(self):
+        self.sidebar = tk.Frame(self.root, bg=COLORS["navy"], width=224)
+        self.sidebar.pack(side="left", fill="y")
+        self.sidebar.pack_propagate(False)
+        brand = tk.Frame(self.sidebar, bg=COLORS["navy"])
+        brand.pack(fill="x", padx=24, pady=(28, 38))
+        tk.Label(brand, text="P", font=(FONT, 18, "bold"), fg=COLORS["navy"], bg="#8DE0D7", width=2).pack(side="left")
+        tk.Label(brand, text="PANTRY", font=(FONT, 13, "bold"), fg=COLORS["white"], bg=COLORS["navy"]).pack(side="left", padx=10)
+        self._nav_item("⌂", "Overview", active=True).pack(fill="x", padx=12, pady=2)
+        self._nav_item("□", "Inventory").pack(fill="x", padx=12, pady=2)
+        self._nav_item("◷", "Expiring soon").pack(fill="x", padx=12, pady=2)
+        self._label(self.sidebar, "WORKSPACE", 8, "#8296A7", "bold").pack(anchor="w", padx=28, pady=(34, 12))
+        self._nav_item("⚙", "Preferences").pack(fill="x", padx=12, pady=2)
+        self._nav_item("?", "Help center").pack(fill="x", padx=12, pady=2)
+        bottom = tk.Frame(self.sidebar, bg=COLORS["navy"])
+        bottom.pack(side="bottom", fill="x", padx=24, pady=24)
+        tk.Frame(bottom, bg="#315069", height=1).pack(fill="x", pady=(0, 18))
+        self._label(bottom, "YOUR PANTRY", 8, "#8296A7", "bold").pack(anchor="w")
+        self._label(bottom, "A clearer view of what\nyou already have.", 10, "#B6C5D0").pack(anchor="w", pady=(7, 0))
+        self.content = tk.Frame(self.root, bg=COLORS["paper"])
+        self.content.pack(side="left", fill="both", expand=True)
+        self._build_header()
+        self._build_dashboard()
+
+    def _nav_item(self, icon, text, active=False):
+        frame = tk.Frame(self.sidebar, bg=COLORS["navy_soft"] if active else COLORS["navy"], height=42)
+        frame.pack_propagate(False)
+        tk.Label(frame, text=icon, font=(FONT, 14), fg="#A8E5DF" if active else "#94A8B7", bg=frame.cget("bg"), width=3).pack(side="left")
+        tk.Label(frame, text=text, font=(FONT, 10, "bold" if active else "normal"), fg=COLORS["white"] if active else "#B6C5D0", bg=frame.cget("bg")).pack(side="left")
+        return frame
+
+    def _build_header(self):
+        header = tk.Frame(self.content, bg=COLORS["paper"])
+        header.pack(fill="x", padx=42, pady=(32, 0))
+        left = tk.Frame(header, bg=COLORS["paper"])
+        left.pack(side="left")
+        self._label(left, "GOOD MORNING", 9, COLORS["teal"], "bold").pack(anchor="w")
+        self._label(left, "Your pantry, at a glance.", 25, COLORS["ink"], "bold").pack(anchor="w", pady=(5, 0))
+        self._label(left, "Keep food fresh and waste less.", 10, COLORS["muted"]).pack(anchor="w", pady=(5, 0))
+        profile = tk.Frame(header, bg=COLORS["paper"])
+        profile.pack(side="right", anchor="n")
+        tk.Label(profile, text="JD", font=(FONT, 10, "bold"), fg=COLORS["navy"], bg="#D8EEEB", width=4, height=2).pack(side="left")
+        tk.Label(profile, text="Jordan's pantry\nPersonal workspace", justify="left", font=(FONT, 9), fg=COLORS["muted"], bg=COLORS["paper"]).pack(side="left", padx=(10, 0))
+
+    def _build_dashboard(self):
+        self.body = tk.Frame(self.content, bg=COLORS["paper"])
+        self.body.pack(fill="both", expand=True, padx=42, pady=(28, 32))
+        self.metrics = tk.Frame(self.body, bg=COLORS["paper"])
+        self.metrics.pack(fill="x", pady=(0, 24))
+        for column in range(4):
+            self.metrics.columnconfigure(column, weight=1)
+        self.metric_values = {}
+        self._metric("TOTAL ITEMS", "0", "in your pantry", COLORS["teal"], 0)
+        self._metric("FRESH", "0", "more than 3 days left", COLORS["green"], 1)
+        self._metric("EXPIRING SOON", "0", "within the next 3 days", COLORS["amber"], 2)
+        self._metric("EXPIRED", "0", "need your attention", COLORS["red"], 3)
+        workspace = tk.Frame(self.body, bg=COLORS["paper"])
+        workspace.pack(fill="both", expand=True)
+        workspace.columnconfigure(0, weight=1, minsize=340)
+        workspace.columnconfigure(1, weight=2, minsize=500)
+        workspace.rowconfigure(0, weight=1)
+        self._build_editor(workspace).grid(row=0, column=0, sticky="nsew", padx=(0, 18))
+        self._build_inventory(workspace).grid(row=0, column=1, sticky="nsew")
+
+    def _metric(self, title, value, subtitle, color, column):
+        card = tk.Frame(self.metrics, bg=COLORS["white"], highlightbackground=COLORS["line"], highlightthickness=1)
+        card.grid(row=0, column=column, sticky="ew", padx=(0 if column == 0 else 10, 0))
+        tk.Frame(card, bg=color, width=4).pack(side="left", fill="y")
+        inner = tk.Frame(card, bg=COLORS["white"])
+        inner.pack(fill="both", expand=True, padx=16, pady=14)
+        tk.Label(inner, text=title, font=(FONT, 8, "bold"), fg=COLORS["muted"], bg=COLORS["white"]).pack(anchor="w")
+        value_label = tk.Label(inner, text=value, font=(FONT, 22, "bold"), fg=COLORS["ink"], bg=COLORS["white"])
+        value_label.pack(anchor="w", pady=(5, 0))
+        tk.Label(inner, text=subtitle, font=(FONT, 8), fg=COLORS["muted"], bg=COLORS["white"]).pack(anchor="w")
+        self.metric_values[title] = value_label
+
+    def _build_editor(self, parent):
+        panel = tk.Frame(parent, bg=COLORS["white"], highlightbackground=COLORS["line"], highlightthickness=1)
+        self._label(panel, "ADD TO PANTRY", 9, COLORS["teal"], "bold").pack(anchor="w", padx=24, pady=(24, 5))
+        self.editor_title = self._label(panel, "Track a food item", 17, COLORS["ink"], "bold")
+        self.editor_title.pack(anchor="w", padx=24)
+        self._label(panel, "Add dates so Pantry can keep an eye on it.", 9, COLORS["muted"]).pack(anchor="w", padx=24, pady=(5, 22))
+        form = tk.Frame(panel, bg=COLORS["white"])
+        form.pack(fill="x", padx=24)
+        self.food_entry = self._field(form, "FOOD NAME", "e.g. Greek yogurt")
+        self.mfg_entry = self._field(form, "PURCHASED / MADE", "DD-MM-YYYY")
+        self.exp_entry = self._field(form, "EXPIRY DATE", "DD-MM-YYYY")
+        actions = tk.Frame(panel, bg=COLORS["white"])
+        actions.pack(fill="x", padx=24, pady=(18, 0))
+        self._button(actions, "Add item", self.add_food, COLORS["teal"], COLORS["teal_dark"]).pack(side="left", fill="x", expand=True)
+        self._button(actions, "Update", self.update_food, "#EEF3F5", "#DDE7EB", fg=COLORS["ink"]).pack(side="left", padx=(8, 0))
+        self._button(actions, "Clear", self.clear_form, COLORS["white"], "#EEF3F5", fg=COLORS["muted"]).pack(side="left", padx=(8, 0))
+        tip = tk.Frame(panel, bg="#F0F8F7")
+        tip.pack(fill="x", padx=24, pady=(28, 24), side="bottom")
+        tk.Label(tip, text="i", font=(FONT, 10, "bold"), fg=COLORS["teal"], bg="#F0F8F7", width=3).pack(side="left", padx=(8, 0), pady=10)
+        tk.Label(tip, text="Select an item in the list to edit or remove it.", font=(FONT, 8), fg=COLORS["teal_dark"], bg="#F0F8F7", wraplength=220, justify="left").pack(side="left", padx=2, pady=10)
+        return panel
+
+    def _field(self, parent, label, placeholder):
+        self._label(parent, label, 8, COLORS["muted"], "bold").pack(anchor="w", pady=(0, 6))
+        entry = tk.Entry(parent, font=(FONT, 10), fg=COLORS["ink"], bg="#FBFCFD", relief="flat", highlightthickness=1, highlightbackground=COLORS["line"], highlightcolor=COLORS["teal"], insertwidth=1)
+        entry.pack(fill="x", ipady=9, pady=(0, 16))
+        entry.insert(0, placeholder)
+        entry.config(fg="#A0AAB3")
+        entry.bind("<FocusIn>", lambda event: self._clear_placeholder(entry, placeholder))
+        entry.bind("<FocusOut>", lambda event: self._restore_placeholder(entry, placeholder))
+        return entry
+
+    @staticmethod
+    def _clear_placeholder(entry, placeholder):
+        if entry.get() == placeholder:
+            entry.delete(0, tk.END)
+            entry.config(fg=COLORS["ink"])
+
+    @staticmethod
+    def _restore_placeholder(entry, placeholder):
+        if not entry.get().strip():
+            entry.insert(0, placeholder)
+            entry.config(fg="#A0AAB3")
+
+    def _button(self, parent, text, command, bg, active, fg="white"):
+        return tk.Button(parent, text=text, command=command, font=(FONT, 9, "bold"), fg=fg, bg=bg, activebackground=active, activeforeground=fg, relief="flat", bd=0, cursor="hand2", padx=13, pady=9)
+
+    def _build_inventory(self, parent):
+        panel = tk.Frame(parent, bg=COLORS["white"], highlightbackground=COLORS["line"], highlightthickness=1)
+        toolbar = tk.Frame(panel, bg=COLORS["white"])
+        toolbar.pack(fill="x", padx=22, pady=(22, 16))
+        title = tk.Frame(toolbar, bg=COLORS["white"])
+        title.pack(side="left")
+        tk.Label(title, text="Your inventory", font=(FONT, 15, "bold"), fg=COLORS["ink"], bg=COLORS["white"]).pack(anchor="w")
+        self.inventory_count = tk.Label(title, text="0 items", font=(FONT, 8), fg=COLORS["muted"], bg=COLORS["white"])
+        self.inventory_count.pack(anchor="w", pady=(3, 0))
+        search_wrap = tk.Frame(toolbar, bg="#F5F7F8", highlightbackground=COLORS["line"], highlightthickness=1)
+        search_wrap.pack(side="right")
+        tk.Label(search_wrap, text="⌕", font=(FONT, 14), fg=COLORS["muted"], bg="#F5F7F8").pack(side="left", padx=(8, 0))
+        self.search_entry = tk.Entry(search_wrap, width=18, font=(FONT, 9), fg=COLORS["ink"], bg="#F5F7F8", relief="flat", bd=0)
+        self.search_entry.pack(side="left", ipady=7, padx=6)
+        self.search_entry.insert(0, "Search inventory")
+        self.search_entry.config(fg="#A0AAB3")
+        self.search_entry.bind("<FocusIn>", lambda event: self._clear_placeholder(self.search_entry, "Search inventory"))
+        self.search_entry.bind("<FocusOut>", lambda event: self._restore_placeholder(self.search_entry, "Search inventory"))
+        self.search_entry.bind("<KeyRelease>", lambda event: self._refresh())
+        table_wrap = tk.Frame(panel, bg=COLORS["white"])
+        table_wrap.pack(fill="both", expand=True, padx=12, pady=(0, 12))
+        columns = ("name", "expiry", "days", "status")
+        self.food_table = ttk.Treeview(table_wrap, columns=columns, show="headings", style="Food.Treeview", selectmode="browse")
+        headings = {"name": "FOOD ITEM", "expiry": "EXPIRY DATE", "days": "DAYS LEFT", "status": "STATUS"}
+        widths = {"name": 150, "expiry": 110, "days": 85, "status": 135}
+        for column in columns:
+            self.food_table.heading(column, text=headings[column], anchor="w")
+            self.food_table.column(column, width=widths[column], anchor="w", stretch=column == "name")
+        scrollbar = ttk.Scrollbar(table_wrap, orient="vertical", command=self.food_table.yview, style="Food.Vertical.TScrollbar")
+        self.food_table.configure(yscrollcommand=scrollbar.set)
+        self.food_table.pack(side="left", fill="both", expand=True)
+        scrollbar.pack(side="right", fill="y")
+        self.food_table.tag_configure("safe", foreground=COLORS["green"])
+        self.food_table.tag_configure("soon", foreground=COLORS["amber"])
+        self.food_table.tag_configure("expired", foreground=COLORS["red"])
+        self.food_table.bind("<<TreeviewSelect>>", self.select_item)
+        self.food_table.bind("<Delete>", lambda event: self.delete_food())
+        self._button(panel, "Delete selected item", self.delete_food, COLORS["white"], "#FDEDEC", fg=COLORS["red"]).pack(anchor="e", padx=22, pady=(0, 20))
+        return panel
+
+    def _value(self, entry):
+        text = entry.get().strip()
+        return "" if text in ("e.g. Greek yogurt", "DD-MM-YYYY", "Search inventory") else text
+
+    def _refresh(self):
+        rows = database.fetch()
+        query = self._value(self.search_entry) if hasattr(self, "search_entry") else ""
+        if query:
+            rows = [row for row in rows if query.lower() in row[1].lower()]
+        if hasattr(self, "food_table"):
+            self.food_table.delete(*self.food_table.get_children())
+        counts = {"total": len(database.fetch()), "fresh": 0, "soon": 0, "expired": 0}
+        for row in rows:
+            try:
+                days_left = (datetime.strptime(row[3], "%d-%m-%Y") - datetime.now()).days
+                if days_left < 0:
+                    status, tag = "Expired", "expired"
+                    counts["expired"] += 1
+                elif days_left <= 3:
+                    status, tag = "Expiring soon", "soon"
+                    counts["soon"] += 1
+                else:
+                    status, tag = "Fresh", "safe"
+                    counts["fresh"] += 1
+                self.food_table.insert("", "end", iid=str(row[0]), values=(row[1], row[3], f"{days_left} days", status), tags=(tag,))
+            except (TypeError, ValueError):
+                self.food_table.insert("", "end", iid=str(row[0]), values=(row[1], row[3], "-", "Invalid date"), tags=("expired",))
+        for key, title in (("total", "TOTAL ITEMS"), ("fresh", "FRESH"), ("soon", "EXPIRING SOON"), ("expired", "EXPIRED")):
+            self.metric_values[title].config(text=str(counts[key]))
+        self.inventory_count.config(text=f"{counts['total']} item" + ("s" if counts["total"] != 1 else ""))
+
+    def add_food(self):
+        values = [self._value(field) for field in (self.food_entry, self.mfg_entry, self.exp_entry)]
+        if not all(values):
+            messagebox.showwarning("Missing details", "Add a food name and both dates to continue.")
+            return
+        if not self._valid_dates(values[1], values[2]):
+            return
+        database.insert(*values)
+        self.clear_form()
+        self._refresh()
+
+    def update_food(self):
+        values = [self._value(field) for field in (self.food_entry, self.mfg_entry, self.exp_entry)]
+        if self.selected_id is None:
+            messagebox.showwarning("No item selected", "Select an inventory item before updating it.")
+            return
+        if not all(values) or not self._valid_dates(values[1], values[2]):
+            return
+        database.update(self.selected_id, *values)
+        self.clear_form()
+        self._refresh()
+
+    def delete_food(self):
+        selected = self.food_table.selection()
+        if not selected:
+            messagebox.showwarning("No item selected", "Select an inventory item to remove it.")
+            return
+        if messagebox.askyesno("Remove item", "Remove this item from your pantry?"):
+            database.delete(selected[0])
+            self.clear_form()
+            self._refresh()
+
+    def select_item(self, _event=None):
+        selected = self.food_table.selection()
+        if not selected:
+            return
+        item = self.food_table.item(selected[0], "values")
+        row = next((row for row in database.fetch() if str(row[0]) == selected[0]), None)
+        if row:
+            self.selected_id = row[0]
+            self._set_entry(self.food_entry, row[1])
+            self._set_entry(self.mfg_entry, row[2])
+            self._set_entry(self.exp_entry, row[3])
+            self.editor_title.config(text=f"Editing {item[0]}")
+
+    @staticmethod
+    def _set_entry(entry, value):
+        entry.delete(0, tk.END)
+        entry.insert(0, value)
+        entry.config(fg=COLORS["ink"])
+
+    def clear_form(self):
+        self.selected_id = None
+        self.editor_title.config(text="Track a food item")
+        for entry, placeholder in ((self.food_entry, "e.g. Greek yogurt"), (self.mfg_entry, "DD-MM-YYYY"), (self.exp_entry, "DD-MM-YYYY")):
+            entry.delete(0, tk.END)
+            entry.insert(0, placeholder)
+            entry.config(fg="#A0AAB3")
+        self.food_table.selection_remove(self.food_table.selection())
+
+    @staticmethod
+    def _valid_dates(mfg_date, expiry_date):
+        try:
+            datetime.strptime(mfg_date, "%d-%m-%Y")
+            datetime.strptime(expiry_date, "%d-%m-%Y")
+            return True
+        except ValueError:
+            messagebox.showwarning("Check the dates", "Use the DD-MM-YYYY format for both dates.")
+            return False
+
+
+if __name__ == "__main__":
+    root = tk.Tk()
+    FoodExpiryApp(root)
+    root.mainloop()
