@@ -3,7 +3,10 @@ from datetime import datetime, timedelta
 
 STORAGE_FORMAT = "%Y-%m-%dT%H:%M:%S"
 DISPLAY_FORMAT = "%d %b %Y, %I:%M %p"
-LEGACY_FORMATS = ("%d-%m-%Y", "%Y-%m-%d", "%d/%m/%Y")
+LEGACY_FORMATS = (
+    "%d-%m-%Y", "%Y-%m-%d", "%d/%m/%Y",
+    "%d %b %Y", "%d %B %Y", "%b %d %Y", "%B %d %Y",
+)
 
 
 def parse_datetime(value, default_time=(12, 0)):

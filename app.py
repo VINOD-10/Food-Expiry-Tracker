@@ -260,11 +260,11 @@ class FoodExpiryApp:
         ttk.Combobox(controls, textvariable=self.filter_var, values=("All statuses", "Fresh", "Expiring Soon", "Urgent", "Expired"), state="readonly", width=16, style="Food.TCombobox").pack(side="left")
         self._button(controls, "Add food item", lambda: self.show_page("overview"), COLORS["teal"], COLORS["teal_dark"]).pack(side="right")
         self.filter_var.trace_add("write", lambda *_args: self._refresh_table(False))
-        self._build_table_panel(body)
+        self._build_table_panel(body).pack(fill="both", expand=True)
 
     def _build_expiring(self):
         body = self._body()
-        self._build_table_panel(body, only_expiring=True)
+        self._build_table_panel(body, only_expiring=True).pack(fill="both", expand=True)
 
     def _row_details(self, row):
         purchased = row[4] or row[2]
