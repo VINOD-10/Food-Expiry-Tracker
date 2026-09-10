@@ -1,4 +1,6 @@
+import json
 from datetime import datetime, timedelta
+from urllib.request import urlopen
 
 
 STORAGE_FORMAT = "%Y-%m-%dT%H:%M:%S"
@@ -7,6 +9,17 @@ LEGACY_FORMATS = (
     "%d-%m-%Y", "%Y-%m-%d", "%d/%m/%Y",
     "%d %b %Y", "%d %B %Y", "%b %d %Y", "%B %d %Y",
 )
+CURRENT_TIME_API_URL = "https://worldtimeapi.org/api/timezone/Asia/Kolkata"
+
+
+def fetch_current_time():
+    """Fetch the current Asia/Kolkata time, or return None if unavailable."""
+    try:
+        with urlopen(CURRENT_TIME_API_URL, timeout=5) as response:
+            payload = json.load(response)
+        return datetime.fromisoformat(payload["datetime"]).replace(tzinfo=None)
+    except (OSError, KeyError, TypeError, ValueError, json.JSONDecodeError):
+        return None
 
 
 def parse_datetime(value, default_time=(12, 0)):

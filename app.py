@@ -1,9 +1,10 @@
 import tkinter as tk
+import threading
 from tkinter import messagebox, ttk
 from datetime import datetime
 
 import database
-from expiry import DISPLAY_FORMAT, format_datetime, format_remaining, get_expiry_details, parse_datetime, to_storage
+from expiry import DISPLAY_FORMAT, fetch_current_time, format_datetime, format_remaining, get_expiry_details, parse_datetime, to_storage
 
 
 COLORS = {
@@ -25,6 +26,7 @@ class FoodExpiryApp:
         self.root.configure(bg=COLORS["paper"])
         self.selected_id = None
         self.sidebar_compact = False
+        self.current_time = datetime.now()
         database.connect()
         self._configure_styles()
         self._build_shell()
@@ -125,10 +127,10 @@ class FoodExpiryApp:
         self._metric(metrics, "EXPIRED", "past the expiry deadline", COLORS["red"], counts["expired"], lambda: self.show_page("inventory"))
         workspace = tk.Frame(body, bg=COLORS["paper"])
         workspace.pack(fill="both", expand=True)
-        workspace.columnconfigure(0, weight=1, minsize=300)
+        workspace.columnconfigure(0, weight=1, minsize=260)
         workspace.columnconfigure(1, weight=2, minsize=420)
         workspace.rowconfigure(0, weight=1)
-        self._build_editor(workspace).grid(row=0, column=0, sticky="nsew", padx=(0, 18))
+        self._build_overview_add_panel(workspace).grid(row=0, column=0, sticky="nsew", padx=(0, 18))
         self._build_recent_items(workspace).grid(row=0, column=1, sticky="nsew")
 
     def _metric(self, parent, title, subtitle, color, value, command=None):
@@ -159,7 +161,7 @@ class FoodExpiryApp:
         list_frame.pack(fill="both", expand=True, padx=22, pady=(0, 22))
         rows = sorted(database.fetch(), key=lambda row: row[0], reverse=True)[:5]
         if not rows:
-            self._label(list_frame, "Your inventory is empty\nAdd a food item from the Overview page to start tracking it.", 10, COLORS["muted"], justify="left").pack(anchor="w", pady=24)
+            self._label(list_frame, "Your inventory is empty\nAdd a food item from the Inventory page to start tracking it.", 10, COLORS["muted"], justify="left").pack(anchor="w", pady=24)
             return panel
         for row in rows:
             details = self._row_details(row)
@@ -170,33 +172,15 @@ class FoodExpiryApp:
             tk.Frame(list_frame, bg=COLORS["line"], height=1).pack(fill="x", pady=(2, 0))
         return panel
 
-    def _build_editor(self, parent):
+    def _build_overview_add_panel(self, parent):
         panel = tk.Frame(parent, bg=COLORS["white"], highlightbackground=COLORS["line"], highlightthickness=1)
         self._label(panel, "ADD TO PANTRY", 9, COLORS["teal"], "bold").pack(anchor="w", padx=24, pady=(24, 5))
-        self.editor_title = self._label(panel, "Track a food item", 17, COLORS["ink"], "bold")
-        self.editor_title.pack(anchor="w", padx=24)
-        self._label(panel, "Dates accept DD-MM-YYYY or DD-MM-YYYY HH:MM.", 9, COLORS["muted"]).pack(anchor="w", padx=24, pady=(5, 22))
-        form = tk.Frame(panel, bg=COLORS["white"])
-        form.pack(fill="x", padx=24)
-        self.food_entry = self._field(form, "FOOD NAME", "e.g. Greek yogurt")
-        self.mfg_entry = self._field(form, "PURCHASED / MADE", DATE_HINT)
-        self.exp_entry = self._field(form, "EXPIRY DATE", DATE_HINT)
-        actions = tk.Frame(panel, bg=COLORS["white"])
-        actions.pack(fill="x", padx=24, pady=(10, 0))
-        self._button(actions, "Add item", self.add_food, COLORS["teal"], COLORS["teal_dark"]).pack(side="left", fill="x", expand=True)
-        self._button(actions, "Update", self.update_food, "#EEF3F5", "#DDE7EB", fg=COLORS["ink"]).pack(side="left", padx=(8, 0))
-        self._button(actions, "Clear", self.clear_form, COLORS["white"], "#EEF3F5", fg=COLORS["muted"]).pack(side="left", padx=(8, 0))
+        self._label(panel, "Track a food item", 17, COLORS["ink"], "bold").pack(anchor="w", padx=24)
+        self._label(panel, "Add food and expiry details from the Overview page.", 9, COLORS["muted"], wraplength=250, justify="left").pack(anchor="w", padx=24, pady=(6, 22))
+        tk.Frame(panel, bg=COLORS["line"], height=1).pack(fill="x", padx=24)
+        self._label(panel, "Keep your pantry up to date and see the item appear in Recent items after saving.", 10, COLORS["muted"], wraplength=250, justify="left").pack(anchor="w", padx=24, pady=(22, 18))
+        self._button(panel, "Add food item", self._open_food_form, COLORS["teal"], COLORS["teal_dark"]).pack(fill="x", padx=24)
         return panel
-
-    def _field(self, parent, label, placeholder):
-        self._label(parent, label, 8, COLORS["muted"], "bold").pack(anchor="w", pady=(0, 6))
-        entry = tk.Entry(parent, font=(FONT, 10), fg=COLORS["ink"], bg="#FBFCFD", relief="flat", highlightthickness=1, highlightbackground=COLORS["line"], highlightcolor=COLORS["teal"])
-        entry.pack(fill="x", ipady=8, pady=(0, 14))
-        entry.insert(0, placeholder)
-        entry.config(fg="#A0AAB3")
-        entry.bind("<FocusIn>", lambda _event: self._clear_placeholder(entry, placeholder))
-        entry.bind("<FocusOut>", lambda _event: self._restore_placeholder(entry, placeholder))
-        return entry
 
     @staticmethod
     def _clear_placeholder(entry, placeholder):
@@ -229,24 +213,16 @@ class FoodExpiryApp:
         self.search_entry = search
         table_wrap = tk.Frame(panel, bg=COLORS["white"])
         table_wrap.pack(fill="both", expand=True, padx=12, pady=(0, 12))
-        columns = ("name", "purchased", "expiry", "remaining", "alert", "status") if only_expiring else ("name", "purchased", "expiry", "remaining", "status")
-        self.food_table = ttk.Treeview(table_wrap, columns=columns, show="headings", style="Food.Treeview", selectmode="browse")
-        headings = {"name": "FOOD ITEM", "purchased": "PURCHASED / MADE", "expiry": "EXPIRY DATE / TIME", "remaining": "TIME LEFT", "alert": "ALERT LEVEL", "status": "STATUS"}
-        widths = {"name": 140, "purchased": 125, "expiry": 140, "remaining": 125, "alert": 100, "status": 105}
-        for column in columns:
-            self.food_table.heading(column, text=headings[column], anchor="w")
-            self.food_table.column(column, width=widths[column], anchor="w", stretch=column == "name")
-        scrollbar = ttk.Scrollbar(table_wrap, orient="vertical", command=self.food_table.yview, style="Food.Vertical.TScrollbar")
-        self.food_table.configure(yscrollcommand=scrollbar.set)
-        self.food_table.pack(side="left", fill="both", expand=True)
+        canvas = tk.Canvas(table_wrap, bg=COLORS["white"], highlightthickness=0)
+        scrollbar = ttk.Scrollbar(table_wrap, orient="vertical", command=canvas.yview, style="Food.Vertical.TScrollbar")
+        self.food_list = tk.Frame(canvas, bg=COLORS["white"])
+        canvas_window = canvas.create_window((0, 0), window=self.food_list, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar.set)
+        self.food_list.bind("<Configure>", lambda _event: canvas.configure(scrollregion=canvas.bbox("all")))
+        canvas.bind("<Configure>", lambda event: canvas.itemconfigure(canvas_window, width=event.width))
+        canvas.pack(side="left", fill="both", expand=True)
         scrollbar.pack(side="right", fill="y")
-        self.empty_state = tk.Label(table_wrap, text="", font=(FONT, 11, "bold"), fg=COLORS["muted"], bg=COLORS["white"], justify="center")
-        self.empty_state.place(relx=0.5, rely=0.5, anchor="center")
-        for tag, color in (("fresh", COLORS["green"]), ("soon", COLORS["amber"]), ("urgent", COLORS["red"]), ("expired", COLORS["red"])):
-            self.food_table.tag_configure(tag, foreground=color)
-        self.food_table.bind("<<TreeviewSelect>>", self.select_item)
-        self._button(panel, "Edit selected", self.edit_selected, "#EEF3F5", "#DDE7EB", fg=COLORS["ink"]).pack(side="left", padx=22, pady=(0, 18))
-        self._button(panel, "Delete selected", self.delete_food, COLORS["white"], "#FDEDEC", fg=COLORS["red"]).pack(side="right", padx=22, pady=(0, 18))
+        self.food_canvas = canvas
         search.bind("<KeyRelease>", lambda _event: self._refresh_table(only_expiring))
         self._refresh_table(only_expiring)
         return panel
@@ -258,7 +234,7 @@ class FoodExpiryApp:
         self.filter_var = tk.StringVar(value="All statuses")
         self._label(controls, "FILTER BY STATUS", 8, COLORS["muted"], "bold").pack(side="left", padx=(0, 8))
         ttk.Combobox(controls, textvariable=self.filter_var, values=("All statuses", "Fresh", "Expiring Soon", "Urgent", "Expired"), state="readonly", width=16, style="Food.TCombobox").pack(side="left")
-        self._button(controls, "Add food item", lambda: self.show_page("overview"), COLORS["teal"], COLORS["teal_dark"]).pack(side="right")
+        self._button(controls, "Add food item", self._open_food_form, COLORS["teal"], COLORS["teal_dark"]).pack(side="right")
         self.filter_var.trace_add("write", lambda *_args: self._refresh_table(False))
         self._build_table_panel(body).pack(fill="both", expand=True)
 
@@ -269,7 +245,7 @@ class FoodExpiryApp:
     def _row_details(self, row):
         purchased = row[4] or row[2]
         expires = row[5] or row[3]
-        return get_expiry_details(purchased, expires)
+        return get_expiry_details(purchased, expires, now=self.current_time)
 
     def _visible_rows(self, only_expiring=False):
         rows = database.fetch()
@@ -284,21 +260,39 @@ class FoodExpiryApp:
         return rows
 
     def _refresh_table(self, only_expiring=False):
-        if not hasattr(self, "food_table"):
+        if not hasattr(self, "food_list"):
             return
         rows = self._visible_rows(only_expiring)
-        self.food_table.delete(*self.food_table.get_children())
-        for row in rows:
+        for child in self.food_list.winfo_children():
+            child.destroy()
+        headings = ("FOOD ITEM", "PURCHASED / MADE", "EXPIRY DATE / TIME", "TIME LEFT", "STATUS")
+        if not only_expiring:
+            headings += ("ACTIONS",)
+        for column, heading in enumerate(headings):
+            self._label(self.food_list, heading, 8, COLORS["muted"], "bold").grid(row=0, column=column, sticky="w", padx=8, pady=(4, 10))
+        self.food_list.columnconfigure(0, weight=2)
+        for column in range(1, len(headings)):
+            self.food_list.columnconfigure(column, weight=1)
+        for row_number, row in enumerate(rows, start=1):
             details = self._row_details(row)
-            alert = "URGENT" if details["alert_level"] == "urgent" else ("EXPIRING SOON" if details["alert_level"] == "soon" else "")
-            values = (row[1], format_datetime(details["purchased_at"]), format_datetime(details["expires_at"]), format_remaining(details["remaining"]), alert, details["status"]) if only_expiring else (row[1], format_datetime(details["purchased_at"]), format_datetime(details["expires_at"]), format_remaining(details["remaining"]), details["status"])
-            self.food_table.insert("", "end", iid=str(row[0]), values=values, tags=(details["alert_level"],))
+            item_row = tk.Frame(self.food_list, bg=COLORS["white"])
+            item_row.grid(row=row_number * 2 - 1, column=0, columnspan=len(headings), sticky="ew")
+            item_row.columnconfigure(0, weight=2)
+            for column in range(1, len(headings)):
+                item_row.columnconfigure(column, weight=1)
+            values = (row[1], format_datetime(details["purchased_at"]), format_datetime(details["expires_at"]), format_remaining(details["remaining"]), details["status"])
+            status_color = COLORS["red"] if details["alert_level"] in ("urgent", "expired") else (COLORS["amber"] if details["alert_level"] == "soon" else COLORS["green"])
+            for column, value in enumerate(values):
+                self._label(item_row, value, 9, status_color if column == 4 else COLORS["ink"], "bold" if column in (0, 4) else "normal").grid(row=0, column=column, sticky="w", padx=8, pady=12)
+            if not only_expiring:
+                actions = tk.Frame(item_row, bg=COLORS["white"])
+                actions.grid(row=0, column=5, sticky="e", padx=8)
+                self._button(actions, "Edit", lambda food_row=row: self._open_food_form(food_row), "#2F80ED", "#2169C7").pack(side="left", padx=(0, 5), pady=2)
+                self._button(actions, "Delete", lambda food_id=row[0]: self._delete_item(food_id), COLORS["red"], "#A93E37").pack(side="left", pady=2)
+            tk.Frame(self.food_list, bg=COLORS["line"], height=1).grid(row=row_number * 2, column=0, columnspan=len(headings), sticky="ew")
         if not rows:
-            message = "Nothing is expiring soon\nItems approaching their expiry date will appear here." if only_expiring else "Your inventory is empty\nAdd a food item from the Overview page to start tracking it."
-            self.empty_state.config(text=message)
-            self.empty_state.place(relx=0.5, rely=0.5, anchor="center")
-        else:
-            self.empty_state.place_forget()
+            message = "Nothing is expiring soon\nItems approaching their expiry date will appear here." if only_expiring else "Your inventory is empty\nAdd a food item from the Inventory page to start tracking it."
+            self._label(self.food_list, message, 11, COLORS["muted"], "bold", justify="center").grid(row=1, column=0, columnspan=len(headings), pady=40)
         self.inventory_count.config(text=f"{len(rows)} item" + ("s" if len(rows) != 1 else ""))
 
     def _counts(self):
@@ -315,94 +309,98 @@ class FoodExpiryApp:
         return counts
 
     def _schedule_refresh(self):
-        if hasattr(self, "food_table"):
+        if hasattr(self, "food_list"):
             self._refresh_table(self.current_route == "expiring")
         elif self.current_route == "overview" and hasattr(self, "metric_values"):
             for title, value in (("TOTAL ITEMS", "total"), ("FRESH", "fresh"), ("EXPIRING SOON", "soon"), ("EXPIRED", "expired")):
                 self.metric_values[title].config(text=str(self._counts()[value]))
+        self._sync_current_time()
         self.root.after(60000, self._schedule_refresh)
+
+    def _sync_current_time(self):
+        def fetch_time():
+            current_time = fetch_current_time()
+            if current_time is not None:
+                self.root.after(0, lambda: self._set_current_time(current_time))
+
+        threading.Thread(target=fetch_time, daemon=True).start()
+
+    def _set_current_time(self, current_time):
+        self.current_time = current_time
+        if hasattr(self, "food_list"):
+            self._refresh_table(self.current_route == "expiring")
+        elif self.current_route == "overview" and hasattr(self, "metric_values"):
+            for title, value in (("TOTAL ITEMS", "total"), ("FRESH", "fresh"), ("EXPIRING SOON", "soon"), ("EXPIRED", "expired")):
+                self.metric_values[title].config(text=str(self._counts()[value]))
 
     def _value(self, entry):
         value = entry.get().strip()
         return "" if value in ("e.g. Greek yogurt", DATE_HINT, "Search inventory") else value
 
-    def add_food(self):
-        values = [self._value(field) for field in (self.food_entry, self.mfg_entry, self.exp_entry)]
-        if not all(values):
-            messagebox.showwarning("Missing details", "Add a food name and both dates to continue.")
-            return
-        try:
-            purchased = parse_datetime(values[1])
-            expires = parse_datetime(values[2], default_time=(23, 59))
-            if expires <= purchased:
-                raise ValueError("Expiry must be later")
-        except ValueError:
-            messagebox.showwarning("Check the dates", "Use DD-MM-YYYY or DD-MM-YYYY HH:MM, with expiry after purchase.")
-            return
-        database.insert(values[0], to_storage(purchased), to_storage(expires))
-        self.clear_form()
-        self.show_page("inventory")
-
-    def update_food(self):
-        if self.selected_id is None:
-            messagebox.showwarning("No item selected", "Select an inventory item before updating it.")
-            return
-        values = [self._value(field) for field in (self.food_entry, self.mfg_entry, self.exp_entry)]
-        try:
-            purchased = parse_datetime(values[1])
-            expires = parse_datetime(values[2], default_time=(23, 59))
-            if not values[0] or expires <= purchased:
-                raise ValueError
-        except (ValueError, IndexError):
-            messagebox.showwarning("Check the dates", "Use DD-MM-YYYY or DD-MM-YYYY HH:MM, with expiry after purchase.")
-            return
-        database.update(self.selected_id, values[0], to_storage(purchased), to_storage(expires))
-        self.clear_form()
-        self.show_page(self.current_route)
-
-    def select_item(self, _event=None):
-        selected = self.food_table.selection() if hasattr(self, "food_table") else ()
-        self.selected_id = int(selected[0]) if selected else None
-
-    def edit_selected(self):
-        selected = self.food_table.selection() if hasattr(self, "food_table") else ()
-        if not selected:
-            messagebox.showwarning("No item selected", "Select an inventory item to edit it.")
-            return
-        row = next((item for item in database.fetch() if str(item[0]) == selected[0]), None)
+    def _open_food_form(self, row=None):
+        dialog = tk.Toplevel(self.root)
+        dialog.title("Edit food item" if row else "Add food item")
+        dialog.geometry("390x330")
+        dialog.resizable(False, False)
+        dialog.configure(bg=COLORS["white"])
+        dialog.transient(self.root)
+        dialog.grab_set()
+        self._label(dialog, "EDIT FOOD ITEM" if row else "ADD FOOD ITEM", 9, COLORS["teal"], "bold").pack(anchor="w", padx=26, pady=(24, 5))
+        self._label(dialog, "Update the details below.", 16, COLORS["ink"], "bold").pack(anchor="w", padx=26, pady=(0, 18))
+        form = tk.Frame(dialog, bg=COLORS["white"])
+        form.pack(fill="x", padx=26)
+        self._label(form, "FOOD NAME", 8, COLORS["muted"], "bold").pack(anchor="w")
+        name_entry = tk.Entry(form, font=(FONT, 10), fg=COLORS["ink"], bg="#FBFCFD", relief="flat", highlightthickness=1, highlightbackground=COLORS["line"])
+        name_entry.pack(fill="x", ipady=8, pady=(6, 12))
+        self._label(form, "PURCHASED / MADE", 8, COLORS["muted"], "bold").pack(anchor="w")
+        purchased_entry = tk.Entry(form, font=(FONT, 10), fg=COLORS["ink"], bg="#FBFCFD", relief="flat", highlightthickness=1, highlightbackground=COLORS["line"])
+        purchased_entry.pack(fill="x", ipady=8, pady=(6, 12))
+        self._label(form, "EXPIRY DATE", 8, COLORS["muted"], "bold").pack(anchor="w")
+        expiry_entry = tk.Entry(form, font=(FONT, 10), fg=COLORS["ink"], bg="#FBFCFD", relief="flat", highlightthickness=1, highlightbackground=COLORS["line"])
+        expiry_entry.pack(fill="x", ipady=8, pady=(6, 12))
         if row:
-            self.selected_id = row[0]
-            self.show_page("overview")
-            self._set_entry(self.food_entry, row[1])
-            self._set_entry(self.mfg_entry, row[4] or row[2])
-            self._set_entry(self.exp_entry, row[5] or row[3])
-            self.editor_title.config(text=f"Editing {row[1]}")
+            purchased_entry.insert(0, format_datetime(row[4] or row[2]))
+            purchased_entry.config(state="disabled")
+            name_entry.insert(0, row[1])
+            expiry_entry.insert(0, format_datetime(row[5] or row[3]))
+        actions = tk.Frame(dialog, bg=COLORS["white"])
+        actions.pack(fill="x", padx=26, pady=(4, 20))
+        self._button(actions, "Save changes" if row else "Add item", lambda: self._save_food_form(dialog, row, name_entry, purchased_entry, expiry_entry), COLORS["teal"], COLORS["teal_dark"]).pack(side="left", fill="x", expand=True)
+        self._button(actions, "Cancel", dialog.destroy, "#EEF3F5", "#DDE7EB", fg=COLORS["ink"]).pack(side="left", padx=(8, 0))
 
-    def delete_food(self):
-        selected = self.food_table.selection() if hasattr(self, "food_table") else ()
-        if not selected:
-            messagebox.showwarning("No item selected", "Select an inventory item to remove it.")
+    def _save_food_form(self, dialog, row, name_entry, purchased_entry, expiry_entry):
+        name = name_entry.get().strip()
+        purchased_value = purchased_entry.get().strip()
+        expiry_value = expiry_entry.get().strip()
+        try:
+            purchased = parse_datetime(purchased_value)
+            expires = parse_datetime(expiry_value, default_time=(23, 59))
+            if not name or expires <= purchased:
+                raise ValueError
+        except ValueError:
+            messagebox.showwarning("Check the dates", "Use DD-MM-YYYY or DD-MM-YYYY HH:MM, with expiry after purchase.", parent=dialog)
             return
-        if messagebox.askyesno("Remove item", "Remove this item from your pantry?"):
-            database.delete(selected[0])
-            self.selected_id = None
-            self.show_page(self.current_route)
+        if row:
+            database.update(row[0], name, to_storage(purchased), to_storage(expires))
+            message = "Food item updated successfully."
+        else:
+            database.insert(name, to_storage(purchased), to_storage(expires))
+            message = "Food item added successfully."
+        dialog.destroy()
+        self.show_page("inventory")
+        messagebox.showinfo("Success", message)
 
-    @staticmethod
-    def _set_entry(entry, value):
-        entry.delete(0, tk.END)
-        entry.insert(0, value)
-        entry.config(fg=COLORS["ink"])
-
-    def clear_form(self):
-        self.selected_id = None
-        for entry, placeholder in ((self.food_entry, "e.g. Greek yogurt"), (self.mfg_entry, DATE_HINT), (self.exp_entry, DATE_HINT)):
-            entry.delete(0, tk.END)
-            entry.insert(0, placeholder)
-            entry.config(fg="#A0AAB3")
-
+    def _delete_item(self, food_id):
+        if not messagebox.askyesno("Remove item", "Are you sure you want to delete this food item?"):
+            return
+        database.delete(food_id)
+        self._refresh_table(self.current_route == "expiring")
+        messagebox.showinfo("Deleted", "Food item deleted successfully.")
 
 if __name__ == "__main__":
     root = tk.Tk()
     FoodExpiryApp(root)
-    root.mainloop()
+    try:
+        root.mainloop()
+    except KeyboardInterrupt:
+        root.destroy()
