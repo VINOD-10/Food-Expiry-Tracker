@@ -1,0 +1,60 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Food Expiry Tracker</title>
+  <meta name="description" content="Track food expiry dates, get in-app alerts and plan your shopping to reduce food waste.">
+  <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+  <script src="/js/theme-init.js"></script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=Plus+Jakarta+Sans:wght@600;700;800&display=swap">
+  <link rel="stylesheet" href="/css/styles.css">
+  <script type="module" src="/js/app.js"></script>
+</head>
+<body>
+  <a class="skip-link" href="#view">Skip to content</a>
+  <div class="app" id="app">
+    <aside class="sidebar" id="sidebar" aria-label="Main navigation">
+      <div class="brand">
+        <span class="brand-mark" data-icon="leaf" aria-hidden="true"></span>
+        <span class="brand-text">
+          <span class="brand-name">Food Expiry Tracker</span><br>
+          <span class="brand-tag">Waste less, eat fresh</span>
+        </span>
+      </div>
+      <nav class="nav" id="nav">
+        <a href="#/overview" data-route="overview"><span data-icon="home"></span><span class="label">Overview</span></a>
+        <a href="#/inventory" data-route="inventory"><span data-icon="box"></span><span class="label">Inventory</span></a>
+        <a href="#/add" data-route="add"><span data-icon="plus-circle"></span><span class="label">Add Food</span></a>
+        <a href="#/alerts" data-route="alerts"><span data-icon="bell"></span><span class="label">Expiry Alerts</span><span class="nav-badge" id="alert-badge" hidden></span></a>
+        <a href="#/shopping" data-route="shopping"><span data-icon="cart"></span><span class="label">Shopping List</span></a>
+        <a href="#/analytics" data-route="analytics"><span data-icon="chart"></span><span class="label">Analytics</span></a>
+        <a href="#/settings" data-route="settings"><span data-icon="settings"></span><span class="label">Settings</span></a>
+      </nav>
+      <div class="sidebar-foot">
+        <p class="sidebar-note">Status is based on the printed date only. Always check food before eating it.</p>
+        <button class="btn btn-ghost collapse-btn" id="collapse-btn" type="button" aria-expanded="true" aria-controls="sidebar">
+          <span data-icon="chevrons-left"></span><span class="label">Collapse sidebar</span>
+        </button>
+      </div>
+    </aside>
+    <div class="backdrop" id="backdrop"></div>
+    <div class="main">
+      <header class="topbar">
+        <button class="btn btn-ghost btn-icon" id="menu-btn" type="button" aria-label="Open menu" aria-expanded="false" aria-controls="sidebar"><span data-icon="menu"></span></button>
+        <div class="brand">
+          <span class="brand-mark" data-icon="leaf" aria-hidden="true"></span>
+          <span class="brand-name">Food Expiry Tracker</span>
+        </div>
+        <a class="btn btn-primary" href="#/add"><span data-icon="plus"></span><span>Add</span></a>
+      </header>
+      <main class="view" id="view" tabindex="-1"></main>
+    </div>
+  </div>
+  <div class="toasts" id="toasts" role="status" aria-live="polite"></div>
+  <div class="tooltip" id="tooltip" role="tooltip" hidden></div>
+  <noscript><p style="padding:24px">Food Expiry Tracker needs JavaScript enabled.</p></noscript>
+</body>
+</html>
