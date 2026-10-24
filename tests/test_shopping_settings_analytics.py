@@ -1,6 +1,6 @@
 import sqlite3
 
-from .conftest import food, make_client
+from .conftest import food, login, make_client
 
 
 def test_shopping_crud_and_filters(client):
@@ -84,6 +84,7 @@ def test_settings_persist_and_change_status(client, settings):
     assert client.get("/api/foods").json()["items"][0]["status"] == "soon"
 
     with make_client(settings) as restarted:
+        login(restarted)
         assert restarted.get("/api/settings").json()["theme"] == "dark"
 
 

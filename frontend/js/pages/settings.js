@@ -1,5 +1,6 @@
 // Settings: every control here is persisted in the SQLite settings table.
-import { api } from "../api.js";
+import { api, ApiError } from "../api.js";
+import { bindPasswordToggles, passwordProblem, showErrors } from "./auth.js";
 import { applySettings, applyTheme, dataChanged, state } from "../state.js";
 import { formatDate, html, icon, pageHead, setBusy, toast } from "../ui.js";
 
@@ -24,7 +25,7 @@ export async function render(view) {
   const notifySupported = "Notification" in window && window.isSecureContext;
 
   view.innerHTML = html`
-    ${pageHead({ eyebrow: "Settings", title: "Settings", subtitle: "Preferences are saved to your local database and apply across the app." })}
+    ${pageHead({ eyebrow: "Settings", title: "Settings", subtitle: "Your preferences are saved to your account and apply wherever you log in." })}
     <form class="card" id="settings-form" novalidate>
       <section class="settings-section">
         <div><h2>Expiry alerts</h2><p>Food expiring within this many days is marked "Expiring soon" and appears in Expiry Alerts.</p></div>
@@ -58,7 +59,7 @@ export async function render(view) {
       <section class="settings-section">
         <div><h2>About your data</h2><p>Where your information is kept.</p></div>
         <div class="small muted stack" style="gap:8px">
-          <p>${icon("info", "sm")} Everything is stored in a local SQLite database on this computer, shared with the desktop app. Nothing is sent to other services.</p>
+          <p>${icon("info", "sm")} Everything is stored in a local SQLite database on this computer. Each account's inventory, shopping list and settings are private to that account. Nothing is sent to other services.</p>
           <p>Dates are worked out in the <strong>${meta.timezone}</strong> timezone. Today is ${formatDate(meta.today)}.</p>
         </div>
       </section>
@@ -66,7 +67,30 @@ export async function render(view) {
         <button class="btn btn-secondary" type="reset">Discard changes</button>
         <button class="btn btn-primary btn-lg" type="submit">${icon("check")}Save settings</button>
       </div>
-    </form>`.value;
+    </form>
+    <section class="card" style="margin-top:16px" aria-labelledby="account-title">
+      <div class="settings-section">
+        <div><h2 id="account-title">Account</h2><p>You're signed in as <strong>${state.user.display_name}</strong> (${state.user.email}).
+          ${state.user.is_owner ? "This is the owner account, so the desktop app shows your inventory." : ""}</p></div>
+        <form id="password-form" class="stack" novalidate>
+          <h3>Change password</h3>
+          <div class="field"><label for="current_password">Current password</label>
+            <div class="password-wrap"><input class="input" id="current_password" name="current_password" type="password" autocomplete="current-password" required maxlength="128" aria-describedby="current_password-error">
+            <button class="btn btn-ghost btn-icon reveal" type="button" aria-label="Show password" aria-pressed="false" aria-controls="current_password">${icon("eye", "sm")}</button></div>
+            <p class="error" id="current_password-error" hidden></p></div>
+          <div class="field"><label for="new_password">New password</label>
+            <div class="password-wrap"><input class="input" id="new_password" name="new_password" type="password" autocomplete="new-password" required maxlength="128" aria-describedby="new_password-hint new_password-error">
+            <button class="btn btn-ghost btn-icon reveal" type="button" aria-label="Show password" aria-pressed="false" aria-controls="new_password">${icon("eye", "sm")}</button></div>
+            <p class="hint" id="new_password-hint">At least 8 characters. Changing it signs you out on your other devices.</p>
+            <p class="error" id="new_password-error" hidden></p></div>
+          <div class="banner banner-danger form-error" role="alert" hidden></div>
+          <div class="page-actions">
+            <button class="btn btn-primary" type="submit">Change password</button>
+            <button class="btn btn-secondary" type="button" id="settings-logout">${icon("logout", "sm")}Log out</button>
+          </div>
+        </form>
+      </div>
+    </section>`.value;
 
   const form = view.querySelector("#settings-form");
   const notify = form.elements.browser_notifications;
@@ -124,6 +148,36 @@ export async function render(view) {
       setBusy(button, false);
     }
   });
+  const passwordForm = view.querySelector("#password-form");
+  bindPasswordToggles(passwordForm);
+  view.querySelector("#settings-logout").addEventListener("click", () => window.dispatchEvent(new Event("fet:logout")));
+  passwordForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = passwordForm.querySelector('[type="submit"]');
+    if (button.disabled) return;
+    const current = passwordForm.elements.current_password.value;
+    const next = passwordForm.elements.new_password.value;
+    const errors = {};
+    if (!current) errors.current_password = "Enter your current password";
+    const problem = passwordProblem(next);
+    if (problem) errors.new_password = problem;
+    else if (next === current) errors.new_password = "Choose a password different from your current one";
+    if (Object.keys(errors).length) { showErrors(passwordForm, errors); return; }
+    showErrors(passwordForm, {});
+    setBusy(button, true);
+    try {
+      await api.put("/api/auth/password", { current_password: current, new_password: next });
+      passwordForm.reset();
+      toast("Password changed. Other devices have been signed out.");
+    } catch (error) {
+      const fields = error instanceof ApiError ? { ...error.fields } : {};
+      delete fields._;
+      showErrors(passwordForm, fields, Object.keys(fields).length ? "" : error.message);
+    } finally {
+      setBusy(button, false);
+    }
+  });
+
   // Leaving without saving drops any theme preview.
   return () => applyTheme(state.settings.theme);
 }

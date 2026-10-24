@@ -3,3 +3,6 @@ backups/
 tests/e2e/screenshots/
 .venv/
 venv/
+__pycache__/
+*.pyc
+certs/

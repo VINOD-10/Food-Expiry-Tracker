@@ -22,14 +22,15 @@ def _local_month(timestamp, tz):
         return None
 
 
-def analytics(conn, today, threshold, tz):
-    items = foods._all(conn, today, threshold)
+def analytics(ctx, tz):
+    conn, today = ctx.conn, ctx.today
+    items = foods.all_items(ctx)
     months = _month_keys(today)
     status_counts = Counter(item["status"] for item in items)
     category_counts = Counter(item["category"] for item in items)
     additions = Counter(_local_month(item["created_at"], tz) for item in items)
 
-    removals = conn.execute("SELECT reason, was_expired, removed_at FROM food_removals").fetchall()
+    removals = conn.execute("SELECT reason, was_expired, removed_at FROM food_removals WHERE user_id = ?", (ctx.user_id,)).fetchall()
     removal_months = {month: {"consumed": 0, "discarded": 0, "other": 0, "expired": 0} for month in months}
     for reason, was_expired, removed_at in removals:
         bucket = removal_months.get(_local_month(removed_at, tz))
@@ -43,7 +44,7 @@ def analytics(conn, today, threshold, tz):
 
     return {
         "today": today.isoformat(),
-        "threshold": threshold,
+        "threshold": ctx.threshold,
         "total": len(items),
         "status": {status: status_counts.get(status, 0) for status in ("safe", "soon", "today", "expired", "unknown")},
         "categories": sorted(

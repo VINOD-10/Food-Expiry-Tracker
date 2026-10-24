@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, Query, Response
 
 from ..schemas import CATEGORIES, FoodIn, RemovalReason
 from ..services import foods
-from .deps import get_conn, get_idempotency_key, get_threshold, get_today
+from .deps import get_ctx, get_idempotency_key
 
 router = APIRouter(prefix="/api", tags=["inventory"])
 StatusFilter = Literal["expired", "today", "soon", "safe", "unknown", "attention"]
@@ -18,56 +18,50 @@ def list_foods(
     sort: Literal["expiry", "newest", "name"] = "expiry",
     page: int = Query(default=1, ge=1),
     page_size: int = Query(default=20, ge=1, le=100),
-    conn=Depends(get_conn), today=Depends(get_today), threshold=Depends(get_threshold),
+    ctx=Depends(get_ctx),
 ):
     search = search.strip() if search else None
-    return foods.list_foods(conn, today, threshold, search, category, status, sort, page, page_size)
+    return foods.list_foods(ctx, search, category, status, sort, page, page_size)
 
 
 @router.post("/foods", status_code=201)
-def create_food(
-    data: FoodIn, response: Response, idempotency_key=Depends(get_idempotency_key),
-    conn=Depends(get_conn), today=Depends(get_today), threshold=Depends(get_threshold),
-):
-    item, created = foods.create_food(conn, data, today, threshold, idempotency_key)
+def create_food(data: FoodIn, response: Response, idempotency_key=Depends(get_idempotency_key), ctx=Depends(get_ctx)):
+    item, created = foods.create_food(ctx, data, idempotency_key)
     if not created:
         response.status_code = 200
     return item
 
 
 @router.get("/foods/{food_id}")
-def get_food(food_id: int, conn=Depends(get_conn), today=Depends(get_today), threshold=Depends(get_threshold)):
-    return foods.get_food(conn, food_id, today, threshold)
+def get_food(food_id: int, ctx=Depends(get_ctx)):
+    return foods.get_food(ctx, food_id)
 
 
 @router.put("/foods/{food_id}")
-def update_food(food_id: int, data: FoodIn, conn=Depends(get_conn), today=Depends(get_today), threshold=Depends(get_threshold)):
-    return foods.update_food(conn, food_id, data, today, threshold)
+def update_food(food_id: int, data: FoodIn, ctx=Depends(get_ctx)):
+    return foods.update_food(ctx, food_id, data)
 
 
 @router.delete("/foods/{food_id}")
-def delete_food(
-    food_id: int, reason: RemovalReason = "other",
-    conn=Depends(get_conn), today=Depends(get_today), threshold=Depends(get_threshold),
-):
-    return {"deleted": foods.delete_food(conn, food_id, reason, today, threshold)}
+def delete_food(food_id: int, reason: RemovalReason = "other", ctx=Depends(get_ctx)):
+    return {"deleted": foods.delete_food(ctx, food_id, reason)}
 
 
 @router.get("/dashboard", tags=["dashboard"])
-def dashboard(conn=Depends(get_conn), today=Depends(get_today), threshold=Depends(get_threshold)):
-    return foods.dashboard(conn, today, threshold)
+def dashboard(ctx=Depends(get_ctx)):
+    return foods.dashboard(ctx)
 
 
 @router.get("/alerts", tags=["alerts"])
-def alerts(include_dismissed: bool = False, conn=Depends(get_conn), today=Depends(get_today), threshold=Depends(get_threshold)):
-    return foods.list_alerts(conn, today, threshold, include_dismissed)
+def alerts(include_dismissed: bool = False, ctx=Depends(get_ctx)):
+    return foods.list_alerts(ctx, include_dismissed)
 
 
 @router.post("/alerts/{food_id}/dismiss", tags=["alerts"])
-def dismiss_alert(food_id: int, conn=Depends(get_conn), today=Depends(get_today), threshold=Depends(get_threshold)):
-    return foods.dismiss_alert(conn, food_id, today, threshold)
+def dismiss_alert(food_id: int, ctx=Depends(get_ctx)):
+    return foods.dismiss_alert(ctx, food_id)
 
 
 @router.delete("/alerts/{food_id}/dismiss", tags=["alerts"])
-def restore_alert(food_id: int, conn=Depends(get_conn), today=Depends(get_today), threshold=Depends(get_threshold)):
-    return foods.restore_alert(conn, food_id, today, threshold)
+def restore_alert(food_id: int, ctx=Depends(get_ctx)):
+    return foods.restore_alert(ctx, food_id)

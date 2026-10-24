@@ -10,6 +10,16 @@ DATABASE_PATH = Path(__file__).resolve().with_name("food.db")
 def _connect():
     return sqlite3.connect(DATABASE_PATH)
 
+
+def _owner_filter(cursor):
+    """The desktop app has no login: it shows the owner's data (the first web account).
+    Rows with no owner yet (before any account exists) stay visible too."""
+    columns = {row[1] for row in cursor.execute("PRAGMA table_info(food)")}
+    has_users = cursor.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='users'").fetchone()
+    if "user_id" in columns and has_users:
+        return " AND (user_id IS NULL OR user_id = (SELECT min(id) FROM users))"
+    return ""
+
 # -----------------------------
 # Create database and table
 # -----------------------------
@@ -89,7 +99,7 @@ def fetch():
     conn = _connect()
     cursor = conn.cursor()
 
-    cursor.execute("SELECT id, food_name, mfg_date, expiry_date, purchased_at, expires_at FROM food ORDER BY id ASC")
+    cursor.execute("SELECT id, food_name, mfg_date, expiry_date, purchased_at, expires_at FROM food WHERE 1=1" + _owner_filter(cursor) + " ORDER BY id ASC")
 
     rows = cursor.fetchall()
 
@@ -107,7 +117,7 @@ def search(food_name):
     cursor = conn.cursor()
 
     cursor.execute(
-        "SELECT * FROM food WHERE food_name LIKE ?",
+        "SELECT * FROM food WHERE food_name LIKE ?" + _owner_filter(cursor),
         ('%' + food_name + '%',)
     )
 
@@ -121,13 +131,29 @@ def search(food_name):
 # -----------------------------
 # Delete one food
 # -----------------------------
-def delete(food_id):
+def delete(food_id, reason=None, was_expired=False):
 
     conn = _connect()
     cursor = conn.cursor()
 
+    # Record why the item left the inventory, for the web app's waste insights.
+    # The food_removals table only exists once the web app has migrated the database.
+    has_history = cursor.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='food_removals'"
+    ).fetchone()
+    if reason and has_history:
+        columns = {row[1] for row in cursor.execute("PRAGMA table_info(food)")}
+        category = "category" if "category" in columns else "NULL"
+        cursor.execute(
+            f"""INSERT INTO food_removals(food_id, food_name, category, expiry_date, reason, was_expired, removed_at)
+                SELECT id, COALESCE(food_name, 'Unnamed item'), {category}, substr(COALESCE(expires_at, expiry_date), 1, 10),
+                       ?, ?, strftime('%Y-%m-%dT%H:%M:%SZ', 'now')
+                FROM food WHERE id=?""" + _owner_filter(cursor),
+            (reason, int(was_expired), food_id),
+        )
+
     cursor.execute(
-        "DELETE FROM food WHERE id=?",
+        "DELETE FROM food WHERE id=?" + _owner_filter(cursor),
         (food_id,)
     )
 
@@ -143,7 +169,7 @@ def delete_all():
     conn = _connect()
     cursor = conn.cursor()
 
-    cursor.execute("DELETE FROM food")
+    cursor.execute("DELETE FROM food WHERE 1=1" + _owner_filter(cursor))
 
     conn.commit()
     conn.close()
@@ -155,8 +181,7 @@ def update(food_id, food_name, mfg_date, expiry_date):
     cursor.execute("""
         UPDATE food
         SET food_name=?, mfg_date=?, expiry_date=?, purchased_at=?, expires_at=?
-        WHERE id=?
-    """, (food_name, mfg_date, expiry_date, mfg_date, expiry_date, food_id))
+        WHERE id=?""" + _owner_filter(cursor), (food_name, mfg_date, expiry_date, mfg_date, expiry_date, food_id))
 
     conn.commit()
     conn.close()
@@ -164,9 +189,14 @@ def update(food_id, food_name, mfg_date, expiry_date):
 
 def get_settings():
     conn = _connect()
-    rows = conn.execute("SELECT setting_key, setting_value FROM settings").fetchall()
+    settings = dict(conn.execute("SELECT setting_key, setting_value FROM settings").fetchall())
+    # Once accounts exist, the owner's own settings (edited in the web app) take priority.
+    if conn.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='user_settings'").fetchone():
+        settings.update(conn.execute(
+            "SELECT setting_key, setting_value FROM user_settings WHERE user_id = (SELECT min(id) FROM users)"
+        ).fetchall())
     conn.close()
-    return dict(rows)
+    return settings
 
 
 def save_settings(settings):

@@ -26,9 +26,24 @@ def make_client(settings, today=TODAY):
     return TestClient(app, raise_server_exceptions=False)
 
 
+PASSWORD = "correct horse battery"
+
+
+def register(test_client, email="owner@example.com", name="Owner"):
+    response = test_client.post("/api/auth/register", json={"display_name": name, "email": email, "password": PASSWORD})
+    assert response.status_code == 201, response.text
+    return response.json()
+
+
+def login(test_client, email="owner@example.com", password=PASSWORD):
+    return test_client.post("/api/auth/login", json={"email": email, "password": password})
+
+
 @pytest.fixture
 def client(settings):
+    """A client signed in as the first account (the owner)."""
     with make_client(settings) as test_client:
+        register(test_client)
         yield test_client
 
 

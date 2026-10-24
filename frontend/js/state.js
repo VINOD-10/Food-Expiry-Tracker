@@ -4,6 +4,7 @@ import { api } from "./api.js";
 import { setDateFormat } from "./ui.js";
 
 export const state = {
+  user: null,
   settings: null,
   meta: null,
 };
@@ -17,10 +18,19 @@ export const dataChanged = () => bus.dispatchEvent(new Event("data-changed"));
 
 export const SORT_FROM_SETTING = { "Expiry date": "expiry", Newest: "newest", Name: "name" };
 
-export async function loadBootData() {
-  const [settings, meta] = await Promise.all([api.get("/api/settings"), api.get("/api/meta")]);
-  state.meta = meta;
-  applySettings(settings);
+export async function loadMeta() {
+  state.meta = await api.get("/api/meta");
+}
+
+/** Loads the signed-in user's settings. */
+export async function loadUserData() {
+  applySettings(await api.get("/api/settings"));
+}
+
+export function clearUserData() {
+  state.user = null;
+  state.settings = null;
+  try { localStorage.removeItem("fet-notified"); } catch { /* storage unavailable */ }
 }
 
 export function applySettings(settings) {

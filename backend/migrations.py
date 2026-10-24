@@ -141,12 +141,70 @@ def _setting_defaults(conn):
     )
 
 
+def _accounts(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL UNIQUE COLLATE NOCASE,
+            display_name TEXT NOT NULL,
+            password_hash TEXT NOT NULL,
+            created_at TEXT NOT NULL,
+            last_login_at TEXT
+        )
+    """)
+    # Only a SHA-256 of each session token is stored; the token itself lives in the cookie.
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sessions(
+            token_hash TEXT PRIMARY KEY,
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            created_at TEXT NOT NULL,
+            expires_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_sessions_user ON sessions(user_id)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS auth_failures(
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            email TEXT NOT NULL,
+            ip TEXT,
+            attempted_at TEXT NOT NULL
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_auth_failures_email ON auth_failures(email, attempted_at)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_settings(
+            user_id INTEGER NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+            setting_key TEXT NOT NULL,
+            setting_value TEXT NOT NULL,
+            PRIMARY KEY (user_id, setting_key)
+        )
+    """)
+    # Ownership. NULL means "not yet claimed": rows from before accounts existed, which
+    # the first account (the owner) takes over when it is created.
+    for table in ("food", "shopping_items", "food_removals"):
+        _add_column(conn, table, "user_id INTEGER REFERENCES users(id) ON DELETE CASCADE")
+        conn.execute(f"CREATE INDEX IF NOT EXISTS idx_{table}_user ON {table}(user_id)")
+    _add_column(conn, "idempotency_keys", "user_id INTEGER")
+    # The desktop app has no login and works on the owner's data, so rows it inserts
+    # belong to the owner (the first account).
+    for table in ("food", "food_removals"):
+        conn.execute(f"""
+            CREATE TRIGGER IF NOT EXISTS {table}_default_owner AFTER INSERT ON {table}
+            WHEN NEW.user_id IS NULL
+            BEGIN
+                UPDATE {table} SET user_id = (SELECT min(id) FROM users) WHERE id = NEW.id;
+            END
+        """)
+
+
 MIGRATIONS = (
     (1, "baseline_desktop_schema", _baseline),
     (2, "food_details_columns", _food_details),
     (3, "shopping_list", _shopping_list),
     (4, "alerts_removals_idempotency", _alerts_and_history),
     (5, "setting_defaults", _setting_defaults),
+    (6, "user_accounts", _accounts),
+    (7, "recovery_codes", lambda conn: _add_column(conn, "users", "recovery_hash TEXT")),
 )
 
 

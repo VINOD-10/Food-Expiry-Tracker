@@ -14,6 +14,9 @@ class Settings:
     timezone_name: str
     cors_origins: tuple[str, ...]
     frontend_dir: Path
+    allow_signup: bool = True
+    session_days: int = 7
+    remember_days: int = 30
 
     @property
     def timezone(self):
@@ -28,4 +31,5 @@ def load_settings():
         timezone_name=os.environ.get("FOOD_TIMEZONE", "Asia/Kolkata"),
         cors_origins=tuple(origin.strip() for origin in origins.split(",") if origin.strip()),
         frontend_dir=PROJECT_ROOT / "frontend",
+        allow_signup=os.environ.get("FOOD_ALLOW_SIGNUP", "true").lower() != "false",
     )

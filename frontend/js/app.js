@@ -1,7 +1,8 @@
-// Hash router and app shell behaviour.
+// Hash router, sign-in gate and app shell behaviour.
 import { api } from "./api.js";
-import { dataChanged, loadBootData, onDataChanged, state } from "./state.js";
-import { errorState, hideTooltip, hydrateIcons, plural } from "./ui.js";
+import { clearUserData, dataChanged, loadMeta, loadUserData, onDataChanged, state } from "./state.js";
+import { errorState, hideTooltip, hydrateIcons, plural, toast } from "./ui.js";
+import { renderAuth } from "./pages/auth.js";
 import * as overview from "./pages/overview.js";
 import * as inventory from "./pages/inventory.js";
 import * as addFood from "./pages/add.js";
@@ -19,24 +20,43 @@ const ROUTES = {
   analytics: { page: analytics, title: "Analytics" },
   settings: { page: settings, title: "Settings" },
 };
+const AUTH_ROUTES = new Set(["login", "signup"]);
 
 const app = document.getElementById("app");
+const authRoot = document.getElementById("auth-root");
 const view = document.getElementById("view");
 let cleanup = null;
 let renderToken = 0;
+let returnTo = null;
+let authNotice = null;
 
 function parseHash() {
   const [path, query = ""] = location.hash.replace(/^#\/?/, "").split("?");
-  const name = ROUTES[path] ? path : "overview";
+  const name = ROUTES[path] || AUTH_ROUTES.has(path) ? path : "overview";
   return { name, params: Object.fromEntries(new URLSearchParams(query)) };
+}
+
+function stopPage() {
+  hideTooltip();
+  cleanup?.();
+  cleanup = null;
 }
 
 async function render() {
   const { name, params } = parseHash();
+  if (!state.user) {
+    showAuth(name);
+    return;
+  }
+  if (AUTH_ROUTES.has(name)) {
+    location.replace("#/overview");
+    return;
+  }
+  authRoot.hidden = true;
+  authRoot.innerHTML = "";
+  app.hidden = false;
   const token = ++renderToken;
-  hideTooltip();
-  cleanup?.();
-  cleanup = null;
+  stopPage();
   closeMenu();
   document.querySelectorAll("#nav a").forEach((link) => {
     if (link.dataset.route === name) link.setAttribute("aria-current", "page");
@@ -50,6 +70,64 @@ async function render() {
   view.focus({ preventScroll: true });
   window.scrollTo(0, 0);
 }
+
+// ---------- sign-in gate ----------
+function showAuth(name) {
+  stopPage();
+  renderToken++;
+  if (!AUTH_ROUTES.has(name)) {
+    // Remember where the visitor was going, then show the login page at #/login.
+    if (location.hash && location.hash !== "#/") returnTo = location.hash;
+    history.replaceState(null, "", "#/login");
+    name = "login";
+  }
+  app.hidden = true;
+  view.innerHTML = "";
+  authRoot.hidden = false;
+  renderAuth(authRoot, name, { notice: authNotice, onAuthenticated });
+  authNotice = null;
+  window.scrollTo(0, 0);
+}
+
+async function onAuthenticated(user, isNew) {
+  state.user = user;
+  await loadUserData();
+  showUser();
+  toast(isNew ? `Welcome, ${user.display_name}! Your account is ready.` : `Welcome back, ${user.display_name}.`);
+  const target = returnTo && !AUTH_ROUTES.has(returnTo.replace(/^#\/?/, "").split("?")[0]) ? returnTo : "#/overview";
+  returnTo = null;
+  if (location.hash === target) render();
+  else location.hash = target;
+  refreshAlerts();
+}
+
+function showUser() {
+  const user = state.user;
+  document.getElementById("user-name").textContent = user.display_name;
+  document.getElementById("user-email").textContent = user.email;
+  document.getElementById("user-initial").textContent = user.display_name.trim().charAt(0).toUpperCase();
+}
+
+async function logout() {
+  try { await api.post("/api/auth/logout"); } catch { /* the session is dropped locally either way */ }
+  clearUserData();
+  document.getElementById("alert-badge").hidden = true;
+  returnTo = null;
+  toast("You've been logged out.", "info");
+  if (location.hash === "#/login") render();
+  else location.hash = "#/login";
+}
+document.getElementById("logout-btn").addEventListener("click", logout);
+window.addEventListener("fet:logout", logout);
+
+window.addEventListener("fet:unauthorized", () => {
+  if (!state.user) return;
+  clearUserData();
+  document.getElementById("alert-badge").hidden = true;
+  authNotice = "Your session has ended. Please log in again.";
+  returnTo = location.hash;
+  render();
+});
 
 // ---------- navigation chrome ----------
 const menuButton = document.getElementById("menu-btn");
@@ -84,6 +162,7 @@ collapseButton.addEventListener("click", () => setCollapsed(!app.classList.conta
 
 // ---------- alert badge + optional browser notifications ----------
 async function refreshAlerts() {
+  if (!state.user) return;
   let data;
   try { data = await api.get("/api/alerts"); } catch { return; }
   const badge = document.getElementById("alert-badge");
@@ -97,7 +176,7 @@ async function refreshAlerts() {
 function maybeNotify(data) {
   if (!state.settings?.browser_notifications || !("Notification" in window) || Notification.permission !== "granted") return;
   if (!data.active) return;
-  const key = `${data.today}:${data.counts.expired}-${data.counts.today}-${data.counts.soon}`;
+  const key = `${state.user.id}:${data.today}:${data.counts.expired}-${data.counts.today}-${data.counts.soon}`;
   try {
     if (localStorage.getItem("fet-notified") === key) return;
     localStorage.setItem("fet-notified", key);
@@ -112,10 +191,9 @@ function maybeNotify(data) {
 
 async function refreshMeta() {
   try {
-    const meta = await api.get("/api/meta");
-    const dayChanged = state.meta && meta.today !== state.meta.today;
-    state.meta = meta;
-    if (dayChanged) dataChanged();
+    const before = state.meta?.today;
+    await loadMeta();
+    if (before && state.meta.today !== before && state.user) dataChanged();
   } catch { /* keep the last known values */ }
 }
 
@@ -126,10 +204,19 @@ async function boot() {
   try { collapsed = localStorage.getItem("fet-sidebar") === "collapsed"; } catch { /* storage unavailable */ }
   setCollapsed(collapsed);
   try {
-    await loadBootData();
+    await loadMeta();
+    try {
+      state.user = await api.get("/api/auth/me");
+      await loadUserData();
+      showUser();
+    } catch (error) {
+      if (error.status !== 401) throw error;
+      state.user = null;
+    }
   } catch (error) {
-    view.innerHTML = errorState(error, "boot-retry").value;
-    view.querySelector("#boot-retry").addEventListener("click", () => location.reload());
+    authRoot.hidden = false;
+    authRoot.innerHTML = `<main class="auth-shell">${errorState(error, "boot-retry").value}</main>`;
+    authRoot.querySelector("#boot-retry").addEventListener("click", () => location.reload());
     return;
   }
   window.addEventListener("hashchange", render);

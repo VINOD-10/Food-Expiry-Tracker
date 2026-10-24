@@ -32,6 +32,17 @@ def parse_stored_date(value):
         return None
 
 
+def format_days(days):
+    """Same wording as formatDays() in frontend/js/ui.js."""
+    if days is None:
+        return "No valid date"
+    if days < 0:
+        return f"Expired {-days} day{'' if days == -1 else 's'} ago"
+    if days == 0:
+        return "Expires today"
+    return f"{days} day{'' if days == 1 else 's'} left"
+
+
 def evaluate(expiry: date | None, today: date, threshold: int):
     if expiry is None:
         return {"status": "unknown", "status_label": STATUS_LABELS["unknown"], "days_remaining": None}

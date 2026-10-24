@@ -2,7 +2,7 @@ import sqlite3
 
 import pytest
 
-from .conftest import food, make_client
+from .conftest import food, login, make_client, register
 
 
 def test_create_list_get_update_delete(client):
@@ -190,8 +190,10 @@ def test_invalid_delete_reason(client):
 
 def test_data_persists_after_restart(settings):
     with make_client(settings) as first:
+        register(first)
         item_id = first.post("/api/foods", json=food(food_name="Paneer")).json()["id"]
     with make_client(settings) as second:
+        login(second)
         assert second.get(f"/api/foods/{item_id}").json()["food_name"] == "Paneer"
 
 

@@ -1,4 +1,5 @@
 """Request validation and response models."""
+import re
 from datetime import date
 from typing import Literal
 
@@ -105,3 +106,63 @@ class SettingsIn(StrictModel):
 
 
 RemovalReason = Literal["consumed", "discarded", "other"]
+
+EMAIL_PATTERN = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+
+
+def _password_rules(value):
+    if len(value) < 8:
+        raise ValueError("Use at least 8 characters")
+    if len(value) > 128:
+        raise ValueError("Use 128 characters or fewer")
+    if not value.strip():
+        raise ValueError("Password cannot be only spaces")
+    return value
+
+
+class RegisterIn(StrictModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=False)
+    display_name: str = Field(min_length=1, max_length=50)
+    email: str = Field(min_length=3, max_length=254)
+    password: str
+
+    _clean_name = field_validator("display_name", mode="before")(_name)
+
+    @field_validator("email", mode="before")
+    @classmethod
+    def _email(cls, value):
+        value = str(value or "").strip().lower()
+        if value and not EMAIL_PATTERN.match(value):
+            raise ValueError("Enter a valid email address")
+        return value
+
+    _password = field_validator("password")(lambda cls, value: _password_rules(value))
+
+
+class LoginIn(StrictModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=False)
+    email: str = Field(min_length=1, max_length=254)
+    password: str = Field(min_length=1, max_length=128)
+    remember: bool = False
+
+
+class ResetPasswordIn(StrictModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=False)
+    email: str = Field(min_length=1, max_length=254)
+    recovery_code: str = Field(min_length=1, max_length=64)
+    new_password: str
+
+    _password = field_validator("new_password")(lambda cls, value: _password_rules(value))
+
+
+class RecoveryCodeIn(StrictModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=False)
+    password: str = Field(min_length=1, max_length=128)
+
+
+class PasswordChangeIn(StrictModel):
+    model_config = ConfigDict(extra="forbid", str_strip_whitespace=False)
+    current_password: str = Field(min_length=1, max_length=128)
+    new_password: str
+
+    _password = field_validator("new_password")(lambda cls, value: _password_rules(value))

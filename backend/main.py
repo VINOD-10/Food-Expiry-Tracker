@@ -10,7 +10,7 @@ from fastapi.responses import JSONResponse
 from fastapi.staticfiles import StaticFiles
 from starlette.exceptions import HTTPException as StarletteHTTPException
 
-from .api import foods, misc, shopping
+from .api import auth, foods, misc, shopping
 from .config import load_settings
 from .db import connect
 from .errors import AppError
@@ -21,7 +21,11 @@ FIELD_LABELS = {
     "food_name": "Food name", "name": "Item name", "category": "Category", "quantity": "Quantity",
     "unit": "Unit", "mfg_date": "Manufacturing date", "expiry_date": "Expiry date",
     "storage_location": "Storage location", "notes": "Notes", "expiry_threshold": "Alert threshold",
+    "display_name": "Name", "email": "Email", "password": "Password",
+    "current_password": "Current password", "new_password": "New password",
+    "recovery_code": "Recovery code",
 }
+UNSAFE_METHODS = {"POST", "PUT", "PATCH", "DELETE"}
 SECURITY_HEADERS = {
     "X-Content-Type-Options": "nosniff",
     "X-Frame-Options": "DENY",
@@ -59,12 +63,27 @@ def create_app(settings=None):
         allow_origins=list(settings.cors_origins),
         allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE"],
         allow_headers=["Content-Type", "Idempotency-Key"],
+        allow_credentials=True,
     )
+
+    @app.middleware("http")
+    async def reject_cross_site_writes(request, call_next):
+        # Defence in depth on top of SameSite cookies: a browser always sends Origin on
+        # cross-site writes, so refuse any that do not come from this app.
+        origin = request.headers.get("origin")
+        if request.method in UNSAFE_METHODS and request.url.path.startswith("/api/") and origin:
+            own_origin = f"{request.url.scheme}://{request.headers.get('host', '')}"
+            if origin != own_origin and origin not in settings.cors_origins:
+                return _error(403, "forbidden_origin", "This request did not come from the Food Expiry Tracker app.")
+        return await call_next(request)
 
     @app.middleware("http")
     async def security_headers(request, call_next):
         response = await call_next(request)
         response.headers.update(SECURITY_HEADERS)
+        if request.url.scheme == "https":
+            # Tell browsers to use HTTPS for this site from now on.
+            response.headers["Strict-Transport-Security"] = "max-age=31536000"
         if request.url.path.startswith("/api/"):
             response.headers["Cache-Control"] = "no-store"
         return response
@@ -122,6 +141,7 @@ def create_app(settings=None):
         logger.exception("Unexpected error", exc_info=error)
         return _error(500, "server_error", "Something went wrong on the server. Please try again.")
 
+    app.include_router(auth.router)
     app.include_router(foods.router)
     app.include_router(shopping.router)
     app.include_router(misc.router)

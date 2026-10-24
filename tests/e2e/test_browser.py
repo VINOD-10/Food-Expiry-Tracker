@@ -10,6 +10,7 @@ import subprocess
 import sys
 import time
 import urllib.request
+from http.cookiejar import CookieJar
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -21,6 +22,7 @@ SCREENSHOTS = Path(os.environ.get("E2E_SCREENSHOTS", ROOT / "tests" / "e2e" / "s
 WIDTHS = [320, 375, 390, 430, 768, 1024, 1440, 1920]
 pytestmark = pytest.mark.skipif(os.environ.get("RUN_E2E") != "1", reason="set RUN_E2E=1 to run browser tests")
 PAGES = ["overview", "inventory", "add", "alerts", "shopping", "analytics", "settings"]
+OWNER = {"display_name": "Owner", "email": "owner@example.com", "password": "correct horse battery"}
 
 
 def _free_port():
@@ -35,6 +37,8 @@ class Server:
         self.port = _free_port()
         self.url = f"http://127.0.0.1:{self.port}"
         self.proc = None
+        # The test's own API client keeps the owner's session cookie, like a browser would.
+        self.opener = urllib.request.build_opener(urllib.request.HTTPCookieProcessor(CookieJar()))
 
     def start(self):
         env = {**os.environ, "FOOD_DB_PATH": str(self.db_path), "FOOD_BACKUP_DIR": str(self.db_path.parent / "backups"),
@@ -58,7 +62,7 @@ class Server:
     def api(self, method, path, body=None):
         request = urllib.request.Request(f"{self.url}{path}", method=method, data=json.dumps(body).encode() if body is not None else None,
                                          headers={"Content-Type": "application/json"})
-        with urllib.request.urlopen(request) as response:
+        with self.opener.open(request) as response:
             return json.loads(response.read())
 
 
@@ -66,6 +70,7 @@ class Server:
 def server(tmp_path_factory):
     srv = Server(tmp_path_factory.mktemp("e2e") / "food.db")
     srv.start()
+    srv.api("POST", "/api/auth/register", OWNER)
     yield srv
     srv.stop()
 
@@ -78,9 +83,17 @@ def browser():
         instance.close()
 
 
+def signed_in_context(browser, server, account=OWNER, **options):
+    """A browser context that has logged in through the real login endpoint."""
+    context = browser.new_context(**{"viewport": {"width": 1440, "height": 900}, **options})
+    response = context.request.post(f"{server.url}/api/auth/login", data={"email": account["email"], "password": account["password"]})
+    assert response.ok, response.text()
+    return context
+
+
 @pytest.fixture
 def page(browser, server):
-    context = browser.new_context(viewport={"width": 1440, "height": 900})
+    context = signed_in_context(browser, server)
     pg = context.new_page()
     pg.errors = []
     pg.on("pageerror", lambda error: pg.errors.append(str(error)))
@@ -314,6 +327,192 @@ def test_settings_persist_across_reload(page, server):
     expect(page.get_by_text("Settings saved.")).to_be_visible()
 
 
+def anonymous_page(browser, width=1440):
+    context = browser.new_context(viewport={"width": width, "height": 900})
+    return context, context.new_page()
+
+
+def test_logged_out_visitor_sees_login_then_returns_to_requested_page(browser, server):
+    context, pg = anonymous_page(browser)
+    pg.goto(f"{server.url}/#/inventory")
+    expect(pg.get_by_role("heading", name="Welcome back")).to_be_visible()
+    assert pg.url.endswith("#/login")
+    expect(pg.locator("#app")).to_be_hidden()
+    pg.get_by_label("Email").fill("OWNER@example.com")
+    pg.get_by_label("Password", exact=True).fill(OWNER["password"])
+    pg.get_by_role("button", name="Log in").click()
+    expect(pg.get_by_role("heading", level=1)).to_have_text("Your food inventory")
+    expect(pg.get_by_text("Welcome back, Owner.")).to_be_visible()
+    expect(pg.locator("#user-email")).to_have_text("owner@example.com")
+    # Signed-in users can't open the login page.
+    pg.goto(f"{server.url}/#/login")
+    expect(pg.get_by_role("heading", level=1)).to_have_text("Your kitchen at a glance")
+    context.close()
+
+
+def test_wrong_password_and_password_toggle(browser, server):
+    context, pg = anonymous_page(browser)
+    pg.goto(f"{server.url}/#/login")
+    pg.get_by_role("button", name="Log in").click()
+    expect(pg.locator("#email-error")).to_have_text("Enter your email address")
+    pg.get_by_label("Email").fill("owner@example.com")
+    password = pg.get_by_label("Password", exact=True)
+    password.fill("not my password")
+    pg.get_by_role("button", name="Show password").click()
+    expect(password).to_have_attribute("type", "text")
+    pg.get_by_role("button", name="Hide password").click()
+    expect(password).to_have_attribute("type", "password")
+    pg.get_by_role("button", name="Log in").click()
+    expect(pg.get_by_role("alert")).to_have_text("Incorrect email or password")
+    expect(password).to_have_value("")
+    expect(password).to_be_focused()
+    context.close()
+
+
+def test_signup_validation_privacy_and_logout(browser, server):
+    server.api("POST", "/api/foods", {"food_name": "Owner-only paneer", "category": "Dairy", "expiry_date": iso(5)})
+    context, pg = anonymous_page(browser)
+    pg.goto(f"{server.url}/#/login")
+    pg.get_by_role("link", name="Create an account").click()
+    expect(pg.get_by_role("heading", name="Create your account")).to_be_visible()
+    pg.get_by_role("button", name="Create account").click()
+    expect(pg.locator("#display_name-error")).to_have_text("Enter your name")
+    pg.get_by_label("Your name").fill("Flatmate")
+    pg.get_by_label("Email").fill("owner@example.com")
+    pg.get_by_label("Password", exact=True).fill("short")
+    pg.get_by_role("button", name="Create account").click()
+    expect(pg.locator("#password-error")).to_have_text("Use at least 8 characters")
+    pg.get_by_label("Password", exact=True).fill("a long passphrase")
+    pg.get_by_label("Confirm password").fill("a different one")
+    pg.get_by_role("button", name="Create account").click()
+    expect(pg.locator("#confirm-error")).to_have_text("Passwords don't match")
+    pg.get_by_label("Confirm password").fill("a long passphrase")
+    pg.get_by_role("button", name="Create account").click()
+    expect(pg.locator("#email-error")).to_contain_text("already exists")  # server-side check
+
+    pg.get_by_label("Email").fill("flatmate@example.com")
+    pg.get_by_role("button", name="Create account").click()
+    expect(pg.get_by_text("Welcome, Flatmate! Your account is ready.")).to_be_visible()
+    expect(pg.get_by_text("Your inventory is empty")).to_be_visible()  # the owner's paneer is private
+    pg.goto(f"{server.url}/#/inventory")
+    expect(pg.get_by_text("Owner-only paneer")).to_have_count(0)
+
+    pg.get_by_role("button", name="Log out").first.click()
+    expect(pg.get_by_role("heading", name="Welcome back")).to_be_visible()
+    expect(pg.get_by_text("You've been logged out.")).to_be_visible()
+    pg.goto(f"{server.url}/#/overview")
+    expect(pg.get_by_role("heading", name="Welcome back")).to_be_visible()
+    context.close()
+
+
+def test_expired_session_returns_to_login(browser, server):
+    import sqlite3
+    context = signed_in_context(browser, server, account={"email": "flatmate@example.com", "password": "a long passphrase"})
+    pg = context.new_page()
+    pg.goto(f"{server.url}/#/shopping")
+    expect(pg.get_by_role("heading", level=1)).to_have_text("Shopping list")
+    conn = sqlite3.connect(server.db_path, isolation_level=None)
+    conn.execute("UPDATE sessions SET expires_at = '2000-01-01T00:00:00Z' WHERE user_id = (SELECT id FROM users WHERE email = 'flatmate@example.com')")
+    conn.close()
+    pg.locator('#nav a[data-route="analytics"]').click()
+    expect(pg.get_by_text("Your session has ended. Please log in again.")).to_be_visible()
+    pg.get_by_label("Email").fill("flatmate@example.com")
+    pg.get_by_label("Password", exact=True).fill("a long passphrase")
+    pg.get_by_role("button", name="Log in").click()
+    expect(pg.get_by_role("heading", level=1)).to_have_text("Insights")  # back where they were going
+    context.close()
+
+
+def test_change_password_from_settings(browser, server):
+    context = signed_in_context(browser, server, account={"email": "flatmate@example.com", "password": "a long passphrase"})
+    pg = context.new_page()
+    pg.goto(f"{server.url}/#/settings")
+    expect(pg.get_by_text("You're signed in as")).to_contain_text("Flatmate")
+    pg.get_by_label("Current password").fill("wrong guess")
+    pg.get_by_label("New password").fill("another passphrase")
+    pg.get_by_role("button", name="Change password").click()
+    expect(pg.locator("#current_password-error")).to_have_text("Your current password is incorrect")
+    pg.get_by_label("Current password").fill("a long passphrase")
+    pg.get_by_role("button", name="Change password").click()
+    expect(pg.get_by_text("Password changed.")).to_be_visible()
+    context.close()
+    context = signed_in_context(browser, server, account={"email": "flatmate@example.com", "password": "another passphrase"})
+    context.close()
+
+
+FAKE_NOTIFICATION = """
+window.__notes = [];
+class FakeNotification {
+  constructor(title, options) { window.__notes.push({ title, body: options && options.body }); }
+}
+FakeNotification.permission = localStorage.getItem("__perm") || window.__initialPermission || "default";
+FakeNotification.requestPermission = async () => {
+  FakeNotification.permission = window.__promptAnswer;
+  localStorage.setItem("__perm", window.__promptAnswer);
+  return window.__promptAnswer;
+};
+window.Notification = FakeNotification;
+"""
+
+
+def notification_page(browser, server, prompt_answer, initial="default"):
+    context = signed_in_context(browser, server, viewport={"width": 1280, "height": 900})
+    context.add_init_script(f"window.__promptAnswer = '{prompt_answer}'; window.__initialPermission = '{initial}';")
+    context.add_init_script(FAKE_NOTIFICATION)
+    return context, context.new_page()
+
+
+def test_notifications_when_permission_granted(browser, server):
+    server.api("POST", "/api/foods", {"food_name": "Notify milk", "category": "Dairy", "expiry_date": iso(0)})
+    context, pg = notification_page(browser, server, "granted")
+    pg.goto(f"{server.url}/#/settings")
+    pg.get_by_label("Show a daily summary notification of active alerts").check()
+    expect(pg.locator("#s-notify-status")).to_contain_text("Permission granted")
+    pg.get_by_role("button", name="Save settings").click()
+    expect(pg.get_by_text("Settings saved.")).to_be_visible()
+    assert server.api("GET", "/api/settings")["browser_notifications"] is True
+    pg.wait_for_function("window.__notes.length === 1")
+    note = pg.evaluate("window.__notes[0]")
+    assert note["title"] == "Food Expiry Tracker" and "expiring today" in note["body"]
+
+    # Reopening the app the same day does not repeat the notification.
+    pg.reload()
+    pg.wait_for_load_state("networkidle")
+    pg.wait_for_timeout(500)
+    assert pg.evaluate("window.__notes.length") == 0
+
+    pg.goto(f"{server.url}/#/settings")
+    pg.get_by_label("Show a daily summary notification of active alerts").uncheck()
+    pg.get_by_role("button", name="Save settings").click()
+    expect(pg.get_by_text("Settings saved.")).to_be_visible()
+    assert server.api("GET", "/api/settings")["browser_notifications"] is False
+    context.close()
+
+
+def test_notifications_when_permission_refused(browser, server):
+    context, pg = notification_page(browser, server, "denied")
+    pg.goto(f"{server.url}/#/settings")
+    toggle = pg.get_by_label("Show a daily summary notification of active alerts")
+    toggle.click()
+    expect(pg.get_by_text("Notification permission was not granted")).to_be_visible()
+    expect(toggle).not_to_be_checked()
+    pg.get_by_role("button", name="Save settings").click()
+    expect(pg.get_by_text("Settings saved.")).to_be_visible()
+    assert server.api("GET", "/api/settings")["browser_notifications"] is False
+    assert pg.evaluate("window.__notes.length") == 0
+    context.close()
+
+
+def test_notifications_when_blocked_in_browser(browser, server):
+    context, pg = notification_page(browser, server, "denied", initial="denied")
+    pg.goto(f"{server.url}/#/settings")
+    expect(pg.locator("#s-notify-status")).to_contain_text("blocked for this site")
+    pg.get_by_label("Show a daily summary notification of active alerts").click()
+    expect(pg.get_by_text("Notifications are blocked in your browser settings")).to_be_visible()
+    expect(pg.get_by_label("Show a daily summary notification of active alerts")).not_to_be_checked()
+    context.close()
+
+
 def test_api_failure_shows_retry(page):
     page.route("**/api/dashboard", lambda route: route.abort())
     page.goto(f"{page.base}/#/overview")
@@ -328,7 +527,7 @@ def test_responsive_layouts_have_no_horizontal_overflow(browser, server):
     SCREENSHOTS.mkdir(parents=True, exist_ok=True)
     problems = []
     for width in WIDTHS:
-        context = browser.new_context(viewport={"width": width, "height": 860})
+        context = signed_in_context(browser, server, viewport={"width": width, "height": 860})
         pg = context.new_page()
         for route in PAGES:
             pg.goto(f"{server.url}/#/{route}")
@@ -345,11 +544,22 @@ def test_responsive_layouts_have_no_horizontal_overflow(browser, server):
                 # Full-page capture mis-renders the sticky desktop sidebar, so desktop shots use the viewport.
                 pg.screenshot(path=SCREENSHOTS / f"{route}-{width}.png", full_page=width < 900)
         context.close()
+        anon = browser.new_context(viewport={"width": width, "height": 860})
+        pg = anon.new_page()
+        for route in ("login", "signup"):
+            pg.goto(f"{server.url}/#/{route}")
+            pg.wait_for_load_state("networkidle")
+            overflow = pg.evaluate("document.documentElement.scrollWidth - window.innerWidth")
+            if overflow > 0:
+                problems.append(f"{route}@{width}px overflows by {overflow}px")
+            if width in (320, 390, 768, 1440):
+                pg.screenshot(path=SCREENSHOTS / f"{route}-{width}.png", full_page=width < 900)
+        anon.close()
     assert not problems, "; ".join(problems)
 
 
 def test_mobile_menu_and_card_layout(browser, server):
-    context = browser.new_context(viewport={"width": 375, "height": 800})
+    context = signed_in_context(browser, server, viewport={"width": 375, "height": 800})
     pg = context.new_page()
     pg.goto(f"{server.url}/#/overview")
     menu = pg.get_by_role("button", name="Open menu")
@@ -366,6 +576,50 @@ def test_mobile_menu_and_card_layout(browser, server):
     box = pg.get_by_role("button", name="Edit Apples").bounding_box()
     assert box["height"] >= 44, "touch target too small"
     context.close()
+
+
+@pytest.mark.skipif(not os.environ.get("AXE_CORE_PATH"), reason="set AXE_CORE_PATH to axe.min.js to run the accessibility audit")
+def test_accessibility_audit(browser, server):
+    """WCAG 2.1 A/AA checks with axe-core on every page, both themes, desktop and phone."""
+    axe = Path(os.environ["AXE_CORE_PATH"]).read_text(encoding="utf-8")
+    problems = []
+
+    def audit(pg, label):
+        pg.add_script_tag(content=axe)
+        result = pg.evaluate("""async () => (await axe.run(document, {
+            runOnly: { type: 'tag', values: ['wcag2a', 'wcag2aa', 'wcag21a', 'wcag21aa'] } })).violations
+            .map(v => `${v.id}: ${v.nodes.length} element(s), e.g. ${v.nodes[0].target.join(' ')}`)""")
+        problems.extend(f"{label} -> {issue}" for issue in result)
+
+    for scheme in ("light", "dark"):
+        anon = browser.new_context(viewport={"width": 1440, "height": 900}, color_scheme=scheme, bypass_csp=True)
+        pg = anon.new_page()
+        for route in ("login", "signup"):
+            pg.goto(f"{server.url}/#/{route}")
+            pg.wait_for_load_state("networkidle")
+            audit(pg, f"{route} {scheme}")
+        anon.close()
+        for width in (1440, 390):
+            # bypass_csp only lets the test inject axe; the app's own CSP is unchanged.
+            context = signed_in_context(browser, server, viewport={"width": width, "height": 900}, color_scheme=scheme, bypass_csp=True)
+            pg = context.new_page()
+            for route in PAGES:
+                pg.goto(f"{server.url}/#/{route}")
+                pg.wait_for_load_state("networkidle")
+                pg.wait_for_timeout(200)
+                audit(pg, f"{route} {scheme} {width}px")
+            if width == 1440:
+                pg.goto(f"{server.url}/#/inventory")
+                pg.wait_for_load_state("networkidle")
+                pg.locator('[data-action="edit"]').first.click()
+                pg.locator("dialog.modal").wait_for()
+                audit(pg, f"edit dialog {scheme}")
+                pg.keyboard.press("Escape")
+                pg.locator('[data-action="delete"]').first.click()
+                pg.locator("dialog.modal").wait_for()
+                audit(pg, f"delete dialog {scheme}")
+            context.close()
+    assert not problems, "\n".join(problems)
 
 
 def test_data_persists_after_server_restart(server):

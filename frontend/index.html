@@ -15,7 +15,8 @@
 </head>
 <body>
   <a class="skip-link" href="#view">Skip to content</a>
-  <div class="app" id="app">
+  <div id="auth-root" hidden></div>
+  <div class="app" id="app" hidden>
     <aside class="sidebar" id="sidebar" aria-label="Main navigation">
       <div class="brand">
         <span class="brand-mark" data-icon="leaf" aria-hidden="true"></span>
@@ -35,6 +36,11 @@
       </nav>
       <div class="sidebar-foot">
         <p class="sidebar-note">Status is based on the printed date only. Always check food before eating it.</p>
+        <div class="user-box">
+          <span class="avatar" id="user-initial" aria-hidden="true"></span>
+          <span class="user-text"><span class="user-name" id="user-name"></span><span class="user-email" id="user-email"></span></span>
+          <button class="btn btn-ghost btn-icon" id="logout-btn" type="button" aria-label="Log out" title="Log out"><span data-icon="logout"></span></button>
+        </div>
         <button class="btn btn-ghost collapse-btn" id="collapse-btn" type="button" aria-expanded="true" aria-controls="sidebar">
           <span data-icon="chevrons-left"></span><span class="label">Collapse sidebar</span>
         </button>

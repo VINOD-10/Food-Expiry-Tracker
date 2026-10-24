@@ -46,6 +46,8 @@ async function request(method, path, { body, params, headers } = {}) {
   }
   if (!response.ok) {
     const error = data?.error;
+    // A 401 outside the auth endpoints means the session ended: the app shows the login page.
+    if (response.status === 401 && !path.startsWith("/api/auth/")) window.dispatchEvent(new Event("fet:unauthorized"));
     throw new ApiError(error?.message || `Request failed (${response.status})`, { status: response.status, fields: error?.fields || {} });
   }
   if (data === null) throw new ApiError("The server sent an unexpected response.", { status: response.status });
