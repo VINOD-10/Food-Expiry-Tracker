@@ -20,7 +20,7 @@ const ROUTES = {
   analytics: { page: analytics, title: "Analytics" },
   settings: { page: settings, title: "Settings" },
 };
-const AUTH_ROUTES = new Set(["login", "signup"]);
+const AUTH_ROUTES = new Set(["login", "signup", "forgot"]);
 
 const app = document.getElementById("app");
 const authRoot = document.getElementById("auth-root");
@@ -89,11 +89,12 @@ function showAuth(name) {
   window.scrollTo(0, 0);
 }
 
-async function onAuthenticated(user, isNew) {
+async function onAuthenticated(user, isNew, wasReset) {
   state.user = user;
   await loadUserData();
   showUser();
-  toast(isNew ? `Welcome, ${user.display_name}! Your account is ready.` : `Welcome back, ${user.display_name}.`);
+  toast(isNew ? `Welcome, ${user.display_name}! Your account is ready.`
+    : wasReset ? "Password reset. Your other devices have been signed out." : `Welcome back, ${user.display_name}.`);
   const target = returnTo && !AUTH_ROUTES.has(returnTo.replace(/^#\/?/, "").split("?")[0]) ? returnTo : "#/overview";
   returnTo = null;
   if (location.hash === target) render();

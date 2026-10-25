@@ -67,7 +67,29 @@ There are no secrets to configure.
 - **Sessions** last 7 days, or 30 with "keep me logged in". The session token is in an `HttpOnly`, `SameSite=Lax` cookie, which page scripts can't read. The database stores only a SHA-256 hash of it. Logging out ends the session on the server. Changing your password signs out your other devices.
 - **Brute-force protection:** after 5 wrong passwords for one email (or 30 from one IP address) within 15 minutes, logins are refused until the 15 minutes pass. A wrong password and an unknown email get the same message, so the login page doesn't reveal who has an account.
 - **Cross-site protection:** writes (POST, PUT, PATCH, DELETE) that come from another website are refused, on top of the `SameSite` cookie.
-- **Not included:** password reset by email (the app sends no email). A forgotten password can only be reset by someone with access to the database file. If you ever put the app on a network, serve it over HTTPS; the cookie is then marked `Secure` automatically.
+- **Forgot your password? Use your recovery code.** When you create an account, the app shows a one-time recovery code (like `K7QPM-3XWNA-...`) once, with Copy and Download buttons. On the login page, **Forgot password?** lets you set a new password with your email and that code. The code then stops working and you get a new one. Codes are stored only as scrypt hashes, and wrong codes count toward the same brute-force limit as wrong passwords. **Settings → Recovery code** makes a new code (it asks for your password). Accounts created before recovery codes existed see a reminder there to create one.
+- **Lost the recovery code too?** Whoever runs the server can reset any password from a terminal. No running server or email is needed:
+
+  ```powershell
+  python -m backend.manage list-users
+  python -m backend.manage reset-password someone@example.com   # asks for the new password twice, hidden
+  ```
+
+  A reset by either method signs that account out on every device.
+
+### HTTPS
+
+```powershell
+python run.py --make-cert                  # once: creates certs\cert.pem and certs\key.pem (self-signed, uses the OpenSSL that ships with Git for Windows)
+python run.py --make-cert 192.168.1.20     # also valid for your LAN IP or a host name, to open it from your phone
+python run.py --https                      # https://127.0.0.1:8443
+python run.py                              # plain http://127.0.0.1:8000, as before
+```
+
+- Browsers warn about a self-signed certificate. Choose to continue, or import `certs\cert.pem` as a trusted certificate on your devices. For a real domain, point `FOOD_SSL_CERTFILE` and `FOOD_SSL_KEYFILE` at a certificate from a certificate authority (for example Let's Encrypt).
+- Over HTTPS the login cookie is marked `Secure`, and responses carry `Strict-Transport-Security`, which tells browsers to use HTTPS for the site from then on.
+- Behind a reverse proxy that handles HTTPS (nginx, Caddy), run plain `python run.py` and set `FOOD_FORWARDED_ALLOW_IPS` to the proxy's address. The app then reads the original `https` scheme from the proxy's headers.
+- `certs\` is in `.gitignore`, so the private key is never committed. `FOOD_HOST` and `FOOD_PORT` change the address and port.
 
 ## Database and migrations
 
@@ -95,11 +117,13 @@ Foreign keys are enabled on every connection.
 | GET | `/api/health` | Health check |
 | GET | `/api/meta` | Categories, units, storage locations, timezone and today's date |
 | GET | `/api/foods` | List items. Takes `search`, `category`, `status` (`expired`/`today`/`soon`/`safe`/`unknown`/`attention`), `sort` (`expiry`/`newest`/`name`), `page` and `page_size`. |
-| POST | `/api/auth/register` | Create an account and log in |
+| POST | `/api/auth/register` | Create an account and log in. The response includes the one-time `recovery_code`. |
 | POST | `/api/auth/login` | Log in. Body: `email`, `password`, optional `remember`. |
 | POST | `/api/auth/logout` | Log out |
 | GET | `/api/auth/me` | The logged-in user, or 401 |
 | PUT | `/api/auth/password` | Change password. Signs out other devices. |
+| POST | `/api/auth/reset-password` | Forgot password. Body: `email`, `recovery_code`, `new_password`. Logs in and returns a new `recovery_code`. |
+| POST | `/api/auth/recovery-code` | Replace the recovery code. Body: `password`. |
 | POST | `/api/foods` | Create an item. An optional `Idempotency-Key` header makes retries safe. |
 | GET / PUT / DELETE | `/api/foods/{id}` | Get, update or delete an item. DELETE takes `?reason=consumed\|discarded\|other`. |
 | GET | `/api/dashboard` | Overview counts, the attention list and recent items |

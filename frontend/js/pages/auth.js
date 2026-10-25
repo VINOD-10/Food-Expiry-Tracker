@@ -1,7 +1,7 @@
 // Login and sign-up pages, shown outside the app shell.
 import { api, ApiError } from "../api.js";
 import { state } from "../state.js";
-import { html, icon, setBusy } from "../ui.js";
+import { html, icon, setBusy, toast } from "../ui.js";
 
 const EMAIL = /^[^@\s]+@[^@\s]+\.[^@\s]+$/;
 const FEATURES = [
@@ -38,6 +38,7 @@ function loginForm(notice) {
     ${notice ? html`<div class="banner banner-info" role="status">${icon("info")}<div class="banner-text">${notice}</div></div>` : ""}
     ${textField("email", "Email", "email", "email", 'maxlength="254" inputmode="email" autofocus')}
     ${passwordField("password", "Password", "current-password")}
+    <p class="forgot-link"><a href="#/forgot">Forgot password?</a></p>
     <label class="check-row"><input type="checkbox" name="remember"> Keep me logged in for 30 days</label>
     <div class="banner banner-danger form-error" role="alert" hidden></div>
     <button class="btn btn-primary btn-lg btn-block" type="submit">Log in</button>
@@ -57,6 +58,64 @@ function signupForm() {
     <button class="btn btn-primary btn-lg btn-block" type="submit">Create account</button>
     <p class="auth-switch">Already have an account? <a href="#/login">Log in</a></p>
   </form>`;
+}
+
+function forgotForm() {
+  return html`<form class="auth-form" novalidate>
+    <h1 id="auth-title">Reset your password</h1>
+    <p class="muted">Enter your email and the recovery code you saved when you created your account.</p>
+    ${textField("email", "Email", "email", "email", 'maxlength="254" inputmode="email" autofocus')}
+    <div class="field">
+      <label for="recovery_code">Recovery code</label>
+      <input class="input mono" id="recovery_code" name="recovery_code" type="text" autocomplete="off" autocapitalize="characters" spellcheck="false" required maxlength="64"
+        placeholder="XXXXX-XXXXX-XXXXX-XXXXX" aria-describedby="recovery_code-hint recovery_code-error">
+      <p class="hint" id="recovery_code-hint">Dashes and capital letters are optional.</p>
+      <p class="error" id="recovery_code-error" hidden></p>
+    </div>
+    ${passwordField("new_password", "New password", "new-password", "At least 8 characters. Resetting signs you out on every other device.")}
+    ${passwordField("confirm", "Confirm new password", "new-password")}
+    <div class="banner banner-danger form-error" role="alert" hidden></div>
+    <button class="btn btn-primary btn-lg btn-block" type="submit">Reset password</button>
+    <p class="auth-switch">Lost your recovery code too? Ask whoever runs this server to reset your password.</p>
+    <p class="auth-switch"><a href="#/login">Back to log in</a></p>
+  </form>`;
+}
+
+/** Shows a one-time recovery code. Resolves when the user confirms they've saved it. */
+export function recoveryCodePanel(container, code, { title, intro, button, headingTag = "h1" }) {
+  container.innerHTML = html`<div class="recovery-panel stack">
+    <${headingTag} id="recovery-title" tabindex="-1">${title}</${headingTag}>
+    <p class="muted">${intro}</p>
+    <div class="recovery-code"><code>${code}</code></div>
+    <div class="banner banner-warn">${icon("alert")}<div class="banner-text">This code is shown only once. Without it, a forgotten password can only be reset by whoever runs this server.</div></div>
+    <div class="page-actions">
+      <button class="btn btn-secondary" type="button" data-copy>${icon("copy", "sm")}Copy code</button>
+      <button class="btn btn-secondary" type="button" data-download>${icon("download", "sm")}Download as file</button>
+    </div>
+    <label class="check-row"><input type="checkbox" data-saved> I've saved my recovery code somewhere safe</label>
+    <button class="btn btn-primary btn-lg btn-block" type="button" data-continue disabled>${button}</button>
+  </div>`.value;
+  container.querySelector("[data-copy]").addEventListener("click", async () => {
+    try {
+      await navigator.clipboard.writeText(code);
+      toast("Recovery code copied.", "info");
+    } catch {
+      toast("Couldn't copy automatically. Select the code and copy it yourself.", "info");
+    }
+  });
+  container.querySelector("[data-download]").addEventListener("click", () => {
+    const text = `Food Expiry Tracker recovery code\n\n${code}\n\nUse it on the "Forgot password?" page. It works once; you get a new one after using it.\n`;
+    const link = document.createElement("a");
+    link.href = URL.createObjectURL(new Blob([text], { type: "text/plain" }));
+    link.download = "food-expiry-tracker-recovery-code.txt";
+    link.click();
+    setTimeout(() => URL.revokeObjectURL(link.href), 1000);
+  });
+  const saved = container.querySelector("[data-saved]");
+  const next = container.querySelector("[data-continue]");
+  saved.addEventListener("change", () => { next.disabled = !saved.checked; });
+  container.querySelector("#recovery-title").focus();
+  return new Promise((resolve) => next.addEventListener("click", resolve, { once: true }));
 }
 
 function closedNotice() {
@@ -109,7 +168,8 @@ export function passwordProblem(value) {
 /** Renders the login or sign-up page. Calls onAuthenticated(user) after success. */
 export function renderAuth(container, mode, { notice, onAuthenticated }) {
   const signup = mode === "signup";
-  const content = signup ? (state.meta?.allow_signup ? signupForm() : closedNotice()) : loginForm(notice);
+  const forgot = mode === "forgot";
+  const content = signup ? (state.meta?.allow_signup ? signupForm() : closedNotice()) : forgot ? forgotForm() : loginForm(notice);
   container.innerHTML = html`<div class="auth-shell">
     <section class="auth-intro" aria-hidden="true">
       <div class="brand"><span class="brand-mark">${icon("leaf")}</span><span class="brand-name">Food Expiry Tracker</span></div>
@@ -121,7 +181,7 @@ export function renderAuth(container, mode, { notice, onAuthenticated }) {
       ${content}
     </main>
   </div>`.value;
-  document.title = `${signup ? "Create account" : "Log in"} · Food Expiry Tracker`;
+  document.title = `${signup ? "Create account" : forgot ? "Reset password" : "Log in"} · Food Expiry Tracker`;
   const form = container.querySelector("form");
   if (!form) return;
   bindPasswordToggles(form);
@@ -136,7 +196,12 @@ export function renderAuth(container, mode, { notice, onAuthenticated }) {
     const errors = {};
     if (!email) errors.email = "Enter your email address";
     else if (!EMAIL.test(email)) errors.email = "Enter a valid email address, like name@example.com";
-    if (signup) {
+    if (forgot) {
+      if (!values.recovery_code.trim()) errors.recovery_code = "Enter your recovery code";
+      const problem = passwordProblem(values.new_password);
+      if (problem) errors.new_password = problem;
+      else if (values.confirm !== values.new_password) errors.confirm = "Passwords don't match";
+    } else if (signup) {
       if (!values.display_name.trim()) errors.display_name = "Enter your name";
       const problem = passwordProblem(values.password);
       if (problem) errors.password = problem;
@@ -146,18 +211,33 @@ export function renderAuth(container, mode, { notice, onAuthenticated }) {
     }
     if (Object.keys(errors).length) { showErrors(form, errors); return; }
     showErrors(form, {});
-    setBusy(button, true, signup ? "Creating account…" : "Logging in…");
+    setBusy(button, true, signup ? "Creating account…" : forgot ? "Resetting…" : "Logging in…");
     try {
-      const user = signup
-        ? await api.post("/api/auth/register", { display_name: values.display_name.trim(), email, password: values.password })
-        : await api.post("/api/auth/login", { email, password: values.password, remember: values.remember === "on" });
-      await onAuthenticated(user, signup);
+      let user;
+      if (forgot) {
+        user = await api.post("/api/auth/reset-password", { email, recovery_code: values.recovery_code.trim(), new_password: values.new_password });
+      } else if (signup) {
+        user = await api.post("/api/auth/register", { display_name: values.display_name.trim(), email, password: values.password });
+      } else {
+        user = await api.post("/api/auth/login", { email, password: values.password, remember: values.remember === "on" });
+      }
+      if (user.recovery_code) {
+        const { recovery_code: code, ...account } = user;
+        user = account;
+        const holder = document.createElement("div");
+        form.replaceWith(holder);
+        document.title = `Recovery code · Food Expiry Tracker`;
+        await recoveryCodePanel(holder, code, forgot
+          ? { title: "Password reset", intro: "Your old recovery code no longer works. Here is your new one:", button: "Continue to my kitchen" }
+          : { title: "Save your recovery code", intro: "If you ever forget your password, this code lets you set a new one.", button: "Continue to my kitchen" });
+      }
+      await onAuthenticated(user, signup, forgot);
     } catch (error) {
       const fields = error instanceof ApiError ? { ...error.fields } : {};
       delete fields._;
       const placed = Object.keys(fields).some((f) => form.querySelector(`#${f}-error`));
       showErrors(form, fields, placed ? "" : error.message);
-      if (!signup && error.status === 401) {
+      if (!signup && !forgot && error.status === 401) {
         form.elements.password.value = "";
         form.elements.password.focus();
       }

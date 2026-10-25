@@ -5,6 +5,7 @@ Uses the locally installed Chrome (or set E2E_BROWSER_CHANNEL=msedge).
 """
 import json
 import os
+import re
 import socket
 import subprocess
 import sys
@@ -392,6 +393,16 @@ def test_signup_validation_privacy_and_logout(browser, server):
 
     pg.get_by_label("Email").fill("flatmate@example.com")
     pg.get_by_role("button", name="Create account").click()
+    # The one-time recovery code comes first; continuing needs the "saved it" tick.
+    expect(pg.get_by_role("heading", name="Save your recovery code")).to_be_focused()
+    expect(pg.locator(".recovery-code code")).to_have_text(re.compile(r"^[A-Z2-9]{5}(-[A-Z2-9]{5}){3}$"))
+    proceed = pg.get_by_role("button", name="Continue to my kitchen")
+    expect(proceed).to_be_disabled()
+    with pg.expect_download() as download:
+        pg.get_by_role("button", name="Download as file").click()
+    assert download.value.suggested_filename == "food-expiry-tracker-recovery-code.txt"
+    pg.get_by_label("I've saved my recovery code somewhere safe").check()
+    proceed.click()
     expect(pg.get_by_text("Welcome, Flatmate! Your account is ready.")).to_be_visible()
     expect(pg.get_by_text("Your inventory is empty")).to_be_visible()  # the owner's paneer is private
     pg.goto(f"{server.url}/#/inventory")
@@ -437,6 +448,69 @@ def test_change_password_from_settings(browser, server):
     expect(pg.get_by_text("Password changed.")).to_be_visible()
     context.close()
     context = signed_in_context(browser, server, account={"email": "flatmate@example.com", "password": "another passphrase"})
+    context.close()
+
+
+FORGETFUL = {"display_name": "Forgetful", "email": "forgetful@example.com", "password": "first passphrase"}
+
+
+def test_forgot_password_with_recovery_code(browser, server):
+    setup = browser.new_context()
+    response = setup.request.post(f"{server.url}/api/auth/register", data=FORGETFUL)
+    assert response.ok, response.text()
+    code = response.json()["recovery_code"]
+    setup.close()
+
+    context, pg = anonymous_page(browser, width=390)
+    pg.goto(f"{server.url}/#/login")
+    pg.get_by_role("link", name="Forgot password?").click()
+    expect(pg.get_by_role("heading", name="Reset your password")).to_be_visible()
+    pg.get_by_role("button", name="Reset password").click()
+    expect(pg.locator("#email-error")).to_have_text("Enter your email address")
+    expect(pg.locator("#recovery_code-error")).to_have_text("Enter your recovery code")
+
+    pg.get_by_label("Email").fill("forgetful@example.com")
+    pg.get_by_label("Recovery code").fill("AAAAA-BBBBB-CCCCC-DDDDD")
+    pg.get_by_label("New password", exact=True).fill("second passphrase")
+    pg.get_by_label("Confirm new password").fill("second passphrase")
+    pg.get_by_role("button", name="Reset password").click()
+    expect(pg.get_by_role("alert")).to_have_text("That email and recovery code don't match")
+
+    pg.get_by_label("Recovery code").fill(code.lower())  # case doesn't matter
+    pg.get_by_role("button", name="Reset password").click()
+    expect(pg.get_by_role("heading", name="Password reset")).to_be_visible()
+    new_code = pg.locator(".recovery-code code").inner_text()
+    assert new_code != code
+    pg.get_by_label("I've saved my recovery code somewhere safe").check()
+    pg.get_by_role("button", name="Continue to my kitchen").click()
+    expect(pg.get_by_text("Password reset. Your other devices have been signed out.")).to_be_visible()
+    expect(pg.get_by_role("heading", level=1)).to_have_text("Your kitchen at a glance")
+    context.close()
+
+    old = browser.new_context()
+    assert old.request.post(f"{server.url}/api/auth/login", data={"email": FORGETFUL["email"], "password": "first passphrase"}).status == 401
+    old.close()
+    signed_in_context(browser, server, account={"email": FORGETFUL["email"], "password": "second passphrase"}).close()
+
+
+def test_new_recovery_code_from_settings(browser, server):
+    context = signed_in_context(browser, server, account={"email": FORGETFUL["email"], "password": "second passphrase"})
+    pg = context.new_page()
+    pg.goto(f"{server.url}/#/settings")
+    expect(pg.get_by_text("You have a recovery code.")).to_be_visible()
+    create = pg.get_by_role("button", name="Create a new recovery code")
+    create.click()
+    expect(pg.locator("#password-error")).to_have_text("Enter your password")
+    pg.get_by_label("Confirm with your password").fill("wrong guess")
+    create.click()
+    expect(pg.locator("#password-error")).to_have_text("Your password is incorrect")
+    pg.get_by_label("Confirm with your password").fill("second passphrase")
+    create.click()
+    expect(pg.get_by_role("heading", name="Your new recovery code")).to_be_visible()
+    expect(pg.locator(".recovery-code code")).to_have_text(re.compile(r"^[A-Z2-9]{5}(-[A-Z2-9]{5}){3}$"))
+    pg.get_by_label("I've saved my recovery code somewhere safe").check()
+    pg.get_by_role("button", name="Done").click()
+    expect(pg.get_by_text("Recovery code saved.")).to_be_focused()
     context.close()
 
 
@@ -546,7 +620,7 @@ def test_responsive_layouts_have_no_horizontal_overflow(browser, server):
         context.close()
         anon = browser.new_context(viewport={"width": width, "height": 860})
         pg = anon.new_page()
-        for route in ("login", "signup"):
+        for route in ("login", "signup", "forgot"):
             pg.goto(f"{server.url}/#/{route}")
             pg.wait_for_load_state("networkidle")
             overflow = pg.evaluate("document.documentElement.scrollWidth - window.innerWidth")
@@ -594,7 +668,7 @@ def test_accessibility_audit(browser, server):
     for scheme in ("light", "dark"):
         anon = browser.new_context(viewport={"width": 1440, "height": 900}, color_scheme=scheme, bypass_csp=True)
         pg = anon.new_page()
-        for route in ("login", "signup"):
+        for route in ("login", "signup", "forgot"):
             pg.goto(f"{server.url}/#/{route}")
             pg.wait_for_load_state("networkidle")
             audit(pg, f"{route} {scheme}")

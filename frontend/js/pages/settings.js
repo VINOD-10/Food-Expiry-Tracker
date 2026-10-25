@@ -1,6 +1,6 @@
 // Settings: every control here is persisted in the SQLite settings table.
 import { api, ApiError } from "../api.js";
-import { bindPasswordToggles, passwordProblem, showErrors } from "./auth.js";
+import { bindPasswordToggles, passwordProblem, recoveryCodePanel, showErrors } from "./auth.js";
 import { applySettings, applyTheme, dataChanged, state } from "../state.js";
 import { formatDate, html, icon, pageHead, setBusy, toast } from "../ui.js";
 
@@ -90,6 +90,22 @@ export async function render(view) {
           </div>
         </form>
       </div>
+      <div class="settings-section">
+        <div><h2 id="recovery-heading">Recovery code</h2><p>Lets you set a new password from the "Forgot password?" page if you forget yours.</p></div>
+        <div class="stack" id="recovery-area">
+          ${state.user.has_recovery_code
+            ? html`<p class="muted">You have a recovery code. Making a new one stops the old one from working.</p>`
+            : html`<div class="banner banner-warn" role="status">${icon("alert")}<div class="banner-text">Your account doesn't have a recovery code yet. Create one now so you can't get locked out.</div></div>`}
+          <form id="recovery-form" class="stack" novalidate>
+            <div class="field"><label for="recovery_password">Confirm with your password</label>
+              <div class="password-wrap"><input class="input" id="recovery_password" name="password" type="password" autocomplete="current-password" required maxlength="128" aria-describedby="password-error">
+              <button class="btn btn-ghost btn-icon reveal" type="button" aria-label="Show password" aria-pressed="false" aria-controls="recovery_password">${icon("eye", "sm")}</button></div>
+              <p class="error" id="password-error" hidden></p></div>
+            <div class="banner banner-danger form-error" role="alert" hidden></div>
+            <div class="page-actions"><button class="btn btn-secondary" type="submit">${icon("key", "sm")}${state.user.has_recovery_code ? "Create a new recovery code" : "Create my recovery code"}</button></div>
+          </form>
+        </div>
+      </div>
     </section>`.value;
 
   const form = view.querySelector("#settings-form");
@@ -174,6 +190,31 @@ export async function render(view) {
       delete fields._;
       showErrors(passwordForm, fields, Object.keys(fields).length ? "" : error.message);
     } finally {
+      setBusy(button, false);
+    }
+  });
+
+  const recoveryForm = view.querySelector("#recovery-form");
+  bindPasswordToggles(recoveryForm);
+  recoveryForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const button = recoveryForm.querySelector('[type="submit"]');
+    if (button.disabled) return;
+    const password = recoveryForm.elements.password.value;
+    if (!password) { showErrors(recoveryForm, { password: "Enter your password" }); return; }
+    showErrors(recoveryForm, {});
+    setBusy(button, true, "Creating…");
+    try {
+      const { recovery_code: code } = await api.post("/api/auth/recovery-code", { password });
+      state.user = { ...state.user, has_recovery_code: true };
+      const area = view.querySelector("#recovery-area");
+      await recoveryCodePanel(area, code, { title: "Your new recovery code", intro: "Your previous code no longer works.", button: "Done", headingTag: "h3" });
+      area.innerHTML = html`<p class="muted" tabindex="-1">Recovery code saved. Making a new one stops the old one from working.</p>`.value;
+      area.firstElementChild.focus();
+    } catch (error) {
+      const fields = error instanceof ApiError ? { ...error.fields } : {};
+      delete fields._;
+      showErrors(recoveryForm, fields, Object.keys(fields).length ? "" : error.message);
       setBusy(button, false);
     }
   });
