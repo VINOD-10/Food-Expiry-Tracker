@@ -207,7 +207,12 @@ def dismiss_alert(ctx, food_id):
 
 def restore_alert(ctx, food_id):
     item = get_food(ctx, food_id)
-    ctx.conn.execute("DELETE FROM alert_dismissals WHERE food_id = ?", (food_id,))
+    # Only restore the dismissal that matches this item's current alert; older
+    # dismissals for different expiry dates remain intact.
+    ctx.conn.execute(
+        "DELETE FROM alert_dismissals WHERE food_id = ? AND status = ? AND expiry_date = ?",
+        (food_id, item["status"], item["expiry_date"]),
+    )
     return {**item, "dismissed": False}
 
 

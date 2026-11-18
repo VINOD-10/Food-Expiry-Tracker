@@ -167,6 +167,23 @@ def test_alerts_dismiss_restore_and_reset_on_edit(client):
     assert client.get("/api/alerts").json()["active"] == 1
 
 
+def test_restore_alert_only_clears_the_current_alert(client, settings):
+    item = client.post("/api/foods", json=food(food_name="Yogurt", expiry_date="2026-10-26")).json()
+    client.post(f"/api/alerts/{item['id']}/dismiss")
+    client.put(f"/api/foods/{item['id']}", json=food(food_name="Yogurt", expiry_date="2026-10-24"))
+    client.post(f"/api/alerts/{item['id']}/dismiss")
+
+    conn = sqlite3.connect(settings.database_path)
+    try:
+        assert conn.execute("SELECT count(*) FROM alert_dismissals").fetchone()[0] == 2
+
+        response = client.delete(f"/api/alerts/{item['id']}/dismiss")
+        assert response.status_code == 200 and response.json()["dismissed"] is False
+        assert conn.execute("SELECT count(*) FROM alert_dismissals").fetchone()[0] == 1
+    finally:
+        conn.close()
+
+
 def test_cannot_dismiss_safe_item(client):
     safe = client.post("/api/foods", json=food(expiry_date="2027-01-01")).json()
     response = client.post(f"/api/alerts/{safe['id']}/dismiss")
