@@ -9,6 +9,8 @@ dropped or rewritten, so the desktop app (app.py) keeps working.
 import sqlite3
 from datetime import datetime
 
+from .db import MysqlConnection
+
 from .db import transaction, utc_now
 
 
@@ -208,6 +210,152 @@ MIGRATIONS = (
 )
 
 
+def _migrate_mysql(conn):
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS schema_migrations(
+            version INTEGER PRIMARY KEY,
+            name VARCHAR(255) NOT NULL,
+            applied_at VARCHAR(32) NOT NULL
+        ) ENGINE=InnoDB
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS users(
+            id INTEGER PRIMARY KEY AUTO_INCREMENT,
+            email VARCHAR(255) NOT NULL UNIQUE,
+            display_name VARCHAR(255) NOT NULL,
+            password_hash VARCHAR(255) NOT NULL,
+            recovery_hash VARCHAR(255),
+            created_at VARCHAR(32) NOT NULL,
+            last_login_at VARCHAR(32),
+            INDEX idx_users_email(email)
+        ) ENGINE=InnoDB
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS settings(
+            setting_key VARCHAR(100) PRIMARY KEY,
+            setting_value TEXT NOT NULL
+        ) ENGINE=InnoDB
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS food(
+            id INTEGER PRIMARY KEY AUTO_INCREMENT,
+            food_name TEXT,
+            mfg_date TEXT,
+            expiry_date TEXT,
+            purchased_at TEXT,
+            expires_at TEXT,
+            category VARCHAR(50) NOT NULL DEFAULT 'Other',
+            quantity DOUBLE,
+            unit VARCHAR(50),
+            storage_location VARCHAR(100),
+            notes TEXT,
+            created_at VARCHAR(32),
+            updated_at VARCHAR(32),
+            user_id INTEGER,
+            INDEX idx_food_expires_at(expires_at(191)),
+            INDEX idx_food_category(category),
+            INDEX idx_food_user(user_id),
+            CONSTRAINT fk_food_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS shopping_items(
+            id INTEGER PRIMARY KEY AUTO_INCREMENT,
+            name VARCHAR(255) NOT NULL,
+            quantity DOUBLE,
+            unit VARCHAR(50),
+            category VARCHAR(50) NOT NULL DEFAULT 'Other',
+            notes TEXT,
+            purchased BOOLEAN NOT NULL DEFAULT FALSE,
+            purchased_at VARCHAR(32),
+            inventory_food_id INTEGER,
+            created_at VARCHAR(32) NOT NULL,
+            updated_at VARCHAR(32) NOT NULL,
+            user_id INTEGER,
+            INDEX idx_shopping_purchased(purchased),
+            INDEX idx_shopping_user(user_id),
+            CONSTRAINT fk_shopping_food FOREIGN KEY (inventory_food_id) REFERENCES food(id) ON DELETE SET NULL,
+            CONSTRAINT fk_shopping_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS alert_dismissals(
+            food_id INTEGER NOT NULL,
+            status VARCHAR(20) NOT NULL,
+            expiry_date VARCHAR(10) NOT NULL,
+            dismissed_at VARCHAR(32) NOT NULL,
+            PRIMARY KEY(food_id, status, expiry_date),
+            CONSTRAINT fk_alert_food FOREIGN KEY (food_id) REFERENCES food(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS food_removals(
+            id INTEGER PRIMARY KEY AUTO_INCREMENT,
+            food_id INTEGER NOT NULL,
+            food_name VARCHAR(255) NOT NULL,
+            category VARCHAR(50),
+            expiry_date VARCHAR(10),
+            reason VARCHAR(20) NOT NULL,
+            was_expired BOOLEAN NOT NULL,
+            removed_at VARCHAR(32) NOT NULL,
+            user_id INTEGER,
+            INDEX idx_food_removals_removed_at(removed_at),
+            INDEX idx_food_removals_user(user_id),
+            CONSTRAINT fk_removal_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS idempotency_keys(
+            idempotency_key VARCHAR(128) PRIMARY KEY,
+            resource VARCHAR(50) NOT NULL,
+            resource_id INTEGER NOT NULL,
+            created_at VARCHAR(32) NOT NULL,
+            user_id INTEGER
+        ) ENGINE=InnoDB
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS sessions(
+            token_hash VARCHAR(64) PRIMARY KEY,
+            user_id INTEGER NOT NULL,
+            created_at VARCHAR(32) NOT NULL,
+            expires_at VARCHAR(32) NOT NULL,
+            INDEX idx_sessions_user(user_id),
+            CONSTRAINT fk_session_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS auth_failures(
+            id INTEGER PRIMARY KEY AUTO_INCREMENT,
+            email VARCHAR(255) NOT NULL,
+            ip VARCHAR(45),
+            attempted_at VARCHAR(32) NOT NULL,
+            INDEX idx_auth_failures_email(email, attempted_at)
+        ) ENGINE=InnoDB
+    """)
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS user_settings(
+            user_id INTEGER NOT NULL,
+            setting_key VARCHAR(100) NOT NULL,
+            setting_value TEXT NOT NULL,
+            PRIMARY KEY(user_id, setting_key),
+            CONSTRAINT fk_user_settings_user FOREIGN KEY (user_id) REFERENCES users(id) ON DELETE CASCADE
+        ) ENGINE=InnoDB
+    """)
+    defaults = {
+        "expiry_threshold": "3",
+        "date_format": "%d-%m-%Y",
+        "default_sort": "Expiry date",
+        "theme": "system",
+        "browser_notifications": "false",
+    }
+    conn.executemany(
+        "INSERT IGNORE INTO settings(setting_key, setting_value) VALUES (?, ?)",
+        defaults.items(),
+    )
+    conn.commit()
+    return None
+
+
 def backup_database(conn, backup_dir, label):
     """Copy the live database with the backup API and verify the copy."""
     backup_dir.mkdir(parents=True, exist_ok=True)
@@ -228,6 +376,8 @@ def backup_database(conn, backup_dir, label):
 
 
 def migrate(conn, backup_dir):
+    if isinstance(conn, MysqlConnection):
+        return _migrate_mysql(conn)
     conn.execute("""
         CREATE TABLE IF NOT EXISTS schema_migrations(
             version INTEGER PRIMARY KEY,

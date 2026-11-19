@@ -3,6 +3,11 @@ import logging
 import sqlite3
 from contextlib import asynccontextmanager
 
+try:
+    import pymysql
+except ImportError:
+    pymysql = None
+
 from fastapi import FastAPI, Request
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
@@ -47,7 +52,7 @@ def create_app(settings=None):
 
     @asynccontextmanager
     async def lifespan(app):
-        conn = connect(settings.database_path)
+        conn = connect(settings.database_path, settings.database_url)
         try:
             backup = migrate(conn, settings.backup_dir)
             if backup:
@@ -135,6 +140,12 @@ def create_app(settings=None):
     async def database_error(_request, error: sqlite3.Error):
         logger.exception("Database error", exc_info=error)
         return _error(500, "database_error", "The database could not complete this request. Please try again.")
+
+    if pymysql is not None:
+        @app.exception_handler(pymysql.MySQLError)
+        async def mysql_database_error(_request, error):
+            logger.exception("MySQL database error", exc_info=error)
+            return _error(500, "database_error", "The database could not complete this request. Please try again.")
 
     @app.exception_handler(Exception)
     async def unexpected_error(_request, error: Exception):

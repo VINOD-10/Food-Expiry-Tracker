@@ -15,7 +15,8 @@ SESSION_COOKIE = "fet_session"
 
 
 def get_conn(request: Request):
-    conn = connect(request.app.state.settings.database_path)
+    settings = request.app.state.settings
+    conn = connect(settings.database_path, settings.database_url)
     try:
         yield conn
     finally:

@@ -10,6 +10,7 @@ PROJECT_ROOT = Path(__file__).resolve().parent.parent
 @dataclass(frozen=True)
 class Settings:
     database_path: Path
+    database_url: str | None
     backup_dir: Path
     timezone_name: str
     cors_origins: tuple[str, ...]
@@ -27,6 +28,7 @@ def load_settings():
     origins = os.environ.get("FOOD_CORS_ORIGINS", "http://127.0.0.1:8000,http://localhost:8000")
     return Settings(
         database_path=Path(os.environ.get("FOOD_DB_PATH", PROJECT_ROOT / "food.db")),
+        database_url=os.environ.get("FOOD_DATABASE_URL"),
         backup_dir=Path(os.environ.get("FOOD_BACKUP_DIR", PROJECT_ROOT / "backups")),
         timezone_name=os.environ.get("FOOD_TIMEZONE", "Asia/Kolkata"),
         cors_origins=tuple(origin.strip() for origin in origins.split(",") if origin.strip()),

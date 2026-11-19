@@ -50,12 +50,34 @@ python app.py
 | Variable | Default | Purpose |
 |---|---|---|
 | `FOOD_DB_PATH` | `food.db` in the project root | SQLite database file |
+| `FOOD_DATABASE_URL` | unset | Optional MySQL URL, for example `mysql+pymysql://root:password@127.0.0.1:3306/food_tracker` |
 | `FOOD_BACKUP_DIR` | `backups\` | Where pre-migration backups are written |
 | `FOOD_TIMEZONE` | `Asia/Kolkata` | Timezone that defines "today" |
 | `FOOD_CORS_ORIGINS` | `http://127.0.0.1:8000,http://localhost:8000` | Comma-separated list of allowed browser origins |
 | `FOOD_ALLOW_SIGNUP` | `true` | Set to `false` to stop new sign-ups once everyone has an account. The first (owner) account can always be created. |
 
 Example: `$env:FOOD_TIMEZONE = "Europe/London"; uvicorn backend.main:app`
+
+### Optional MySQL backend
+
+1. Create the database and a dedicated user in MySQL:
+
+```sql
+CREATE DATABASE food_tracker CHARACTER SET utf8mb4 COLLATE utf8mb4_unicode_ci;
+CREATE USER 'food_app'@'localhost' IDENTIFIED BY 'choose-a-strong-password';
+GRANT ALL PRIVILEGES ON food_tracker.* TO 'food_app'@'localhost';
+FLUSH PRIVILEGES;
+```
+
+2. Install dependencies and set the connection URL:
+
+```powershell
+pip install -r requirements.txt
+$env:FOOD_DATABASE_URL = "mysql+pymysql://food_app:choose-a-strong-password@127.0.0.1:3306/food_tracker"
+uvicorn backend.main:app --host 127.0.0.1 --port 8000
+```
+
+The schema is created automatically at startup. Leave `FOOD_DATABASE_URL` unset to continue using SQLite.
 
 There are no secrets to configure.
 

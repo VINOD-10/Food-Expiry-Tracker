@@ -11,9 +11,11 @@ DEFAULTS = {
 
 
 def get_settings(conn, user_id):
-    stored = dict(conn.execute(
+    stored = {}
+    for row in conn.execute(
         "SELECT setting_key, setting_value FROM user_settings WHERE user_id = ?", (user_id,)
-    ).fetchall())
+    ).fetchall():
+        stored[row["setting_key"]] = row["setting_value"]
     result = dict(DEFAULTS)
     try:
         result["expiry_threshold"] = min(30, max(0, int(stored.get("expiry_threshold", 3))))

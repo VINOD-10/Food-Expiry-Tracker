@@ -40,7 +40,7 @@ def main(argv=None, prompt=getpass.getpass):
     args = parser.parse_args(argv)
 
     settings = load_settings()
-    conn = connect(settings.database_path)
+    conn = connect(settings.database_path, settings.database_url)
     try:
         migrate(conn, settings.backup_dir)
         if args.command == "list-users":
